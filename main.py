@@ -19,23 +19,69 @@ class ExitException(Exception):
     pass
 
 
-class Main:
-    MAX_FAIL = 5
-    SILENT = True
-    UPDATE_FREQ = 10
-
-    def __init__(self, scanners: List[Scanner]):
+class StockMonitor:
+    def __init__(self, scanners: List[Scanner], update_freq=10):
+        self._update_freq = update_freq
         self._scanners = scanners
         self._update_results: Union[Iterable[Future], None] = None
-        self._last_update = None
-
-        # notifications
-        self._notification_thread = None
+        self._last_update_time = None
 
         # update thread
         self.pool = ThreadPoolExecutor(len(scanners))
         self._update_thread = None
         self.stop_update = False
+
+    def _update_scanners(self):
+        def update_scanner(scanner: Scanner):
+            scanner.update()
+
+        self._last_update_time = datetime.now()
+        self._update_results = [self.pool.submit(update_scanner, scanner) for scanner in self._scanners]
+
+    def _update_loop(self):
+        self._update_scanners()
+        while not self.stop_update:
+            update_pending = any(map(lambda f: not f.done(), self._update_results))
+            delay_elapsed = (datetime.now() - self._last_update_time).total_seconds() >= self._update_freq
+            if update_pending or not delay_elapsed:
+                time.sleep(0.5)
+            else:
+                self._update_scanners()
+
+    def clear_errors(self):
+        for scanner in self._scanners:
+            scanner.clear_last_error()
+
+    def start(self):
+        assert self._update_thread is None
+        self.stop_update = False
+        self._update_thread = threading.Thread(target=self._update_loop)
+        self._update_thread.start()
+
+    def terminate(self):
+        if self._update_thread is not None:
+            self.stop_update = True
+            self._update_thread.join()
+        self.pool.shutdown(wait=False)
+        if self._update_results is not None:
+            for f in self._update_results:
+                if not f.done():
+                    f.cancel()
+
+    @property
+    def scanners(self):
+        return self._scanners
+
+
+class Main:
+    MAX_FAIL = 5
+    SILENT = True
+
+    def __init__(self, monitor: StockMonitor):
+        self.monitor = monitor
+
+        # notifications
+        self._notification_thread = None
 
         # init layout
         curses.use_default_colors()
@@ -50,7 +96,7 @@ class Main:
         time_format = "%x-%X"
         self.layout = {
             "padding": (3, 1),
-            "columns": (("Name", max(map(lambda s: len(s.name), self._scanners))),
+            "columns": (("Name", max(map(lambda s: len(s.name), self.monitor.scanners))),
                         ("State", max(map(lambda s: len(s), state_names.values()))),
                         ("Last Scan", max(len("Last Scan"), len("99s ago"))),
                         ("Last Stock", len(datetime.now().strftime(time_format))),
@@ -63,23 +109,6 @@ class Main:
             },
             "time_format": time_format
         }
-
-    def _update_scanners(self):
-        def update_scanner(scanner: Scanner):
-            scanner.update()
-
-        self._last_update = datetime.now()
-        self._update_results = [self.pool.submit(update_scanner, scanner) for scanner in self._scanners]
-
-    def _update_loop(self):
-        self._update_scanners()
-        while not self.stop_update:
-            update_pending = any(map(lambda f: not f.done(), self._update_results))
-            delay_elapsed = (datetime.now() - self._last_update).total_seconds() >= Main.UPDATE_FREQ
-            if update_pending or not delay_elapsed:
-                time.sleep(0.5)
-            else:
-                self._update_scanners()
 
     def _play_loop(self, file):
         if not Main.SILENT and self._notification_thread is None:
@@ -100,16 +129,10 @@ class Main:
         def has_errors(s: Scanner):
             return s.consecutive_errors >= Main.MAX_FAIL
 
-        if any(map(has_stock, self._scanners)):
+        if any(map(has_stock, self.monitor.scanners)):
             self._play_ok_sound()
-        elif any(map(has_errors, self._scanners)):
+        elif any(map(has_errors, self.monitor.scanners)):
             self._play_error_sound()
-
-    def start(self):
-        assert self._update_thread is None
-        self.stop_update = False
-        self._update_thread = threading.Thread(target=self._update_loop)
-        self._update_thread.start()
 
     def draw(self, stdscr):
         self._notifications()
@@ -124,7 +147,7 @@ class Main:
             x += column[1] + padding[0]
 
         y += padding[1] + 1
-        for i, scanner in enumerate(self._scanners):
+        for i, scanner in enumerate(self.monitor.scanners):
             x = padding[0]
 
             stdscr.addstr(y, x, scanner.name)
@@ -157,7 +180,7 @@ class Main:
             y += 3
 
         stdscr.addstr(y, padding[0],
-                      f"[press 'q' to quit]")
+                      f"[press 'q' to quit, 'c' to clear errors]")
 
         stdscr.refresh()
         # handle user inputs (quit)
@@ -168,21 +191,14 @@ class Main:
             key = None
         if key == "q":
             raise ExitException
-
-    def terminate(self):
-        if self._update_thread is not None:
-            self.stop_update = True
-            self._update_thread.join()
-        self.pool.shutdown(wait=False)
-        if self._update_results is not None:
-            for f in self._update_results:
-                if not f.done():
-                    f.cancel()
+        elif key == 'c':
+            self.monitor.clear_errors()
 
 
 if __name__ == '__main__':
     try:
-        Scanner.DefaultTimeout = Main.UPDATE_FREQ
+        UPDATE_FREQ = 10
+        Scanner.DefaultTimeout = UPDATE_FREQ
         scanners = [
             HardwareFrScanner(),
             LDLCScanner(),
@@ -198,16 +214,17 @@ if __name__ == '__main__':
         ]
 
         def main(stdscr):
-            app = Main(scanners)
+            monitor = StockMonitor(scanners, UPDATE_FREQ)
+            app = Main(monitor)
             try:
-                app.start()
+                monitor.start()
                 while True:
                     app.draw(stdscr)
                     time.sleep(1.0 / 10)
             except ExitException:
                 pass
             finally:
-                app.terminate()
+                monitor.terminate()
 
         curses.wrapper(main)
         print("exiting...")

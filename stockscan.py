@@ -94,6 +94,9 @@ class Scanner:
     def last_sate(self) -> str:
         return self._last_state
 
+    def clear_last_error(self) -> None:
+        self._last_error = None
+
 
 class DummyException(RuntimeError):
     def __init__(self):
