@@ -1,14 +1,28 @@
 import requests
 from bs4 import BeautifulSoup
+from bs4.element import Tag
 import re
 from datetime import datetime
 import time
 import random
-from typing import Dict, Union
+from typing import Dict, Union, List, Tuple
+from urllib.parse import quote
 
 
 def make_soup(resp: requests.Response):
     return BeautifulSoup(resp.content, 'html.parser')
+
+
+def parse_search_terms(search_terms: str) -> Tuple[List[str], List[str]]:
+    terms = list(filter(None, search_terms.lower().split(" ")))
+    keywords: List[str] = []
+    blacklist: List[str] = []
+    for term in terms:
+        if term.startswith("-"):
+            blacklist.append(term[1:])
+        else:
+            keywords.append(term)
+    return keywords, blacklist
 
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 " \
@@ -35,7 +49,11 @@ class Scanner:
         self._name = name
 
     def _scan(self) -> bool:
-        raise NotImplemented
+        raise Exception("Not Implemented")
+
+    @property
+    def watched_item_count(self) -> int:
+        raise Exception("Not Implemented")
 
     def update(self) -> None:
         try:
@@ -52,7 +70,7 @@ class Scanner:
 
     @property
     def user_url(self) -> str:
-        raise NotImplemented
+        raise Exception("Not Implemented")
 
     @property
     def name(self) -> str:
@@ -130,7 +148,7 @@ class HtmlScanner(Scanner):
         self.time_out = kwargs.get("time_out", Scanner.DefaultTimeout)
 
     def _scan_html(self, bs: BeautifulSoup) -> bool:
-        raise NotImplemented
+        raise Exception("Not Implemented")
 
     def _scan(self) -> bool:
         resp = requests.get(self.target_url, headers=self.headers, timeout=self.time_out)
@@ -141,6 +159,49 @@ class HtmlScanner(Scanner):
     @property
     def user_url(self) -> str:
         return self.target_url
+
+
+class SearchBasedHtmlScanner(HtmlScanner):
+    def __init__(self, name: str, url_format: str, search_terms: str, **kwargs):
+        self._keywords, self._blacklist = parse_search_terms(search_terms)
+        url = url_format.format(search=quote('+'.join(self._keywords)))
+        super().__init__(name, url, **kwargs)
+
+    def _get_all_items_in_page(self, bs: BeautifulSoup) -> List[Tag]:
+        raise Exception("Not Implemented")
+
+    def _get_item_title(self, item: Tag) -> Tag:
+        raise Exception("Not Implemented")
+
+    def _is_item_in_stock(self, item: Tag) -> bool:
+        raise Exception("Not Implemented")
+
+    def _scan_html(self, bs: BeautifulSoup) -> bool:
+        keywords = self._keywords
+        blacklist = self._blacklist
+
+        def is_wanted(item: Tag) -> bool:
+            title = self._get_item_title(item)
+            assert title is not None
+            text = title.get_text().lower()
+            return all(k in text for k in keywords) and not any(k in text for k in blacklist)
+
+        items = list(filter(is_wanted, self._get_all_items_in_page(bs)))
+        self._item_count = len(items)
+        assert self._item_count > 0
+
+        def is_in_stock(item):
+            return self._is_item_in_stock(item)
+
+        return any(map(is_in_stock, items))
+
+    @property
+    def watched_item_count(self) -> int:
+        return self._item_count or None
+
+    @property
+    def name(self) -> str:
+        return f"{super().name}[{','.join(self._keywords)}]"
 
 
 class JsonScanner(Scanner):
@@ -155,7 +216,7 @@ class JsonScanner(Scanner):
         self.time_out = kwargs.get("time_out", Scanner.DefaultTimeout)
 
     def _scan_json(self, json: dict) -> bool:
-        raise NotImplemented
+        raise Exception("Not Implemented")
 
     def _scan(self) -> bool:
         if self.method == 'GET':
@@ -163,32 +224,40 @@ class JsonScanner(Scanner):
         elif self.method == 'POST':
             resp = requests.post(self.target_url, data=self.payload, headers=self.headers, timeout=self.time_out)
         else:
-            raise ValueError("Unsopported HTTP method: " + self.method)
+            raise ValueError("Unsupported HTTP method: " + self.method)
         resp.raise_for_status()
         json = resp.json()
         return self._scan_json(json)
 
 
-class LDLCScanner(HtmlScanner):
-    def __init__(self, *args, **kwargs):
-        super().__init__("LDLC", "https://www.ldlc.com/recherche/evga%203080/",
-                         *args, **kwargs)
+class LDLCScanner(SearchBasedHtmlScanner):
+    def __init__(self, search_terms: str, **kwargs):
+        url_format = "https://www.ldlc.com/recherche/{search}/"
+        super().__init__("LDLC", url_format, search_terms, ** kwargs)
 
-    def _scan_html(self, bs: BeautifulSoup) -> bool:
-        assert len(bs.select(".stock-web")) > 0
-        total = len(bs.select('.stock-web .stock-1')) + len(bs.select('.stock-web .stock-2'))
-        return total > 0
+    def _get_all_items_in_page(self, bs: BeautifulSoup) -> List[Tag]:
+        return bs.select(".listing-product .pdt-item")
+
+    def _get_item_title(self, item: Tag) -> Tag:
+        return item.find(class_="title-3")
+
+    def _is_item_in_stock(self, item: Tag) -> bool:
+        return len(item.select(".stock-web .stock-1,.stock-web .stock-2")) > 0
 
 
-class TopAchatScanner(HtmlScanner):
-    def __init__(self, *args, **kwargs):
-        super().__init__("TopAchat", "https://www.topachat.com/pages"
-                                     "/produits_cat_est_micro_puis_rubrique_est_wgfx_pcie_puis_mc_est_evga%252B3080.html",
-                         *args, **kwargs)
+class TopAchatScanner(SearchBasedHtmlScanner):
+    def __init__(self, search_terms: str, **kwargs):
+        url_format = "https://www.topachat.com/pages/recherche.php?cat=accueil&etou=0&mc={search}"
+        super().__init__("TopAchat", url_format, search_terms, **kwargs)
 
-    def _scan_html(self, bs: BeautifulSoup) -> bool:
-        assert len(bs.select('.produits.list article')) > 0
-        return len(bs.select('.en-stock')) > 0
+    def _get_all_items_in_page(self, bs: BeautifulSoup) -> List[Tag]:
+        return bs.select('.produits.list article')
+
+    def _get_item_title(self, item: Tag) -> Tag:
+        return item.find(class_="libelle")
+
+    def _is_item_in_stock(self, item: Tag) -> bool:
+        return item.find(class_="en-stock") is not None
 
 
 class HardwareFrScanner(HtmlScanner):

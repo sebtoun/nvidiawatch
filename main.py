@@ -75,10 +75,10 @@ class StockMonitor:
 
 class Main:
     MAX_FAIL = 5
-    SILENT = True
 
-    def __init__(self, monitor: StockMonitor):
+    def __init__(self, monitor: StockMonitor, silent=False):
         self.monitor = monitor
+        self.silent = silent
 
         # notifications
         self._notification_thread = None
@@ -100,7 +100,7 @@ class Main:
                         ("State", max(map(lambda s: len(s), state_names.values()))),
                         ("Last Scan", max(len("Last Scan"), len("99s ago"))),
                         ("Last Stock", len(datetime.now().strftime(time_format))),
-                        ("Last Error", len(datetime.now().strftime(time_format)) + len(" (#XXX)"))),
+                        ("Details", -1)),
             "state_names": state_names,
             "state_attributes": {
                 Scanner.InStock: curses.A_STANDOUT | curses.color_pair(2),
@@ -111,7 +111,7 @@ class Main:
         }
 
     def _play_loop(self, file):
-        if not Main.SILENT and self._notification_thread is None:
+        if not self.silent and self._notification_thread is None:
             self._notification_thread = threading.Thread(target=loop,
                                                          args=(file,))
             self._notification_thread.start()
@@ -171,8 +171,14 @@ class Main:
                 stdscr.addstr(y, x, scanner.last_stock_time.strftime(time_format))
             x += columns[3][1] + padding[0]
 
+            try:
+                detail = f"{scanner.watched_item_count} items watched"
+            except:
+                detail = None
             if scanner.last_error is not None:
                 stdscr.addstr(y, x, f"{scanner.last_error}")
+            elif detail is not None:
+                stdscr.addstr(y, x, detail)
 
             stdscr.addstr(y + 1, padding[0],
                           f"\tCheck {scanner.user_url}")
@@ -201,9 +207,11 @@ if __name__ == '__main__':
         Scanner.DefaultTimeout = UPDATE_FREQ
         scanners = [
             HardwareFrScanner(),
-            LDLCScanner(),
+            LDLCScanner("evga 3080"),
+            # LDLCScanner("amd ryzen 5900x -kit"),
             NvidiaScanner(),
-            TopAchatScanner(),
+            TopAchatScanner("evga 3080"),
+            # TopAchatScanner("amd ryzen 5900x -kit"),
             RueDuCommerceScanner(),
             MaterielNetScanner(),
             CaseKingScanner(),
@@ -215,7 +223,7 @@ if __name__ == '__main__':
 
         def main(stdscr):
             monitor = StockMonitor(scanners, UPDATE_FREQ)
-            app = Main(monitor)
+            app = Main(monitor, silent=True)
             try:
                 monitor.start()
                 while True:
