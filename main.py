@@ -206,7 +206,7 @@ if __name__ == '__main__':
         UPDATE_FREQ = 10
         Scanner.DefaultTimeout = UPDATE_FREQ
         scanners = [
-            HardwareFrScanner(),
+            HardwareFrScanner("evga 3080"),
             LDLCScanner("evga 3080"),
             # LDLCScanner("amd ryzen 5900x -kit"),
             NvidiaScanner(),

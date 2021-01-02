@@ -141,11 +141,14 @@ class DummyScanner(Scanner):
 
 
 class HtmlScanner(Scanner):
-    def __init__(self, name, url, **kwargs):
+    def __init__(self, name, **kwargs):
         super().__init__(name)
-        self.target_url = url
         self.headers = {'user-agent': USER_AGENT}
         self.time_out = kwargs.get("time_out", Scanner.DefaultTimeout)
+
+    @property
+    def target_url(self) -> str:
+        raise Exception("Not Implemented")
 
     def _scan_html(self, bs: BeautifulSoup) -> bool:
         raise Exception("Not Implemented")
@@ -162,18 +165,17 @@ class HtmlScanner(Scanner):
 
 
 class SearchBasedHtmlScanner(HtmlScanner):
-    def __init__(self, name: str, url_format: str, search_terms: str, **kwargs):
+    def __init__(self, name: str, search_terms: str, **kwargs):
         self._keywords, self._blacklist = parse_search_terms(search_terms)
-        url = url_format.format(search=quote('+'.join(self._keywords)))
-        super().__init__(name, url, **kwargs)
+        super().__init__(name, **kwargs)
 
     def _get_all_items_in_page(self, bs: BeautifulSoup) -> List[Tag]:
         raise Exception("Not Implemented")
 
-    def _get_item_title(self, item: Tag) -> Tag:
+    def _get_item_title(self, item: Tag, bs: BeautifulSoup) -> str:
         raise Exception("Not Implemented")
 
-    def _is_item_in_stock(self, item: Tag) -> bool:
+    def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
         raise Exception("Not Implemented")
 
     def _scan_html(self, bs: BeautifulSoup) -> bool:
@@ -181,9 +183,9 @@ class SearchBasedHtmlScanner(HtmlScanner):
         blacklist = self._blacklist
 
         def is_wanted(item: Tag) -> bool:
-            title = self._get_item_title(item)
-            assert title is not None
-            text = title.get_text().lower()
+            title = self._get_item_title(item, bs)
+            assert bool(title)
+            text = title.lower()
             return all(k in text for k in keywords) and not any(k in text for k in blacklist)
 
         items = list(filter(is_wanted, self._get_all_items_in_page(bs)))
@@ -191,7 +193,7 @@ class SearchBasedHtmlScanner(HtmlScanner):
         assert self._item_count > 0
 
         def is_in_stock(item):
-            return self._is_item_in_stock(item)
+            return self._is_item_in_stock(item, bs)
 
         return any(map(is_in_stock, items))
 
@@ -232,51 +234,71 @@ class JsonScanner(Scanner):
 
 class LDLCScanner(SearchBasedHtmlScanner):
     def __init__(self, search_terms: str, **kwargs):
-        url_format = "https://www.ldlc.com/recherche/{search}/"
-        super().__init__("LDLC", url_format, search_terms, ** kwargs)
+        name = "LDLC"
+        super().__init__(name, search_terms, ** kwargs)
+
+    @property
+    def target_url(self) -> str:
+        return f"https://www.ldlc.com/recherche/{quote('+'.join(self._keywords))}/"
 
     def _get_all_items_in_page(self, bs: BeautifulSoup) -> List[Tag]:
         return bs.select(".listing-product .pdt-item")
 
-    def _get_item_title(self, item: Tag) -> Tag:
-        return item.find(class_="title-3")
+    def _get_item_title(self, item: Tag, bs: BeautifulSoup) -> Tag:
+        return item.find(class_="title-3").get_text()
 
-    def _is_item_in_stock(self, item: Tag) -> bool:
+    def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
         return len(item.select(".stock-web .stock-1,.stock-web .stock-2")) > 0
 
 
 class TopAchatScanner(SearchBasedHtmlScanner):
     def __init__(self, search_terms: str, **kwargs):
-        url_format = "https://www.topachat.com/pages/recherche.php?cat=accueil&etou=0&mc={search}"
-        super().__init__("TopAchat", url_format, search_terms, **kwargs)
+        name = "TopAchat"
+        super().__init__(name, search_terms, **kwargs)
+
+    @property
+    def target_url(self) -> str:
+        return f"https://www.topachat.com/pages/recherche.php?cat=accueil&etou=0&mc={quote('+'.join(self._keywords))}"
 
     def _get_all_items_in_page(self, bs: BeautifulSoup) -> List[Tag]:
         return bs.select('.produits.list article')
 
-    def _get_item_title(self, item: Tag) -> Tag:
-        return item.find(class_="libelle")
+    def _get_item_title(self, item: Tag, bs: BeautifulSoup) -> str:
+        return item.find(class_="libelle").get_text()
 
-    def _is_item_in_stock(self, item: Tag) -> bool:
+    def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
         return item.find(class_="en-stock") is not None
 
 
-class HardwareFrScanner(HtmlScanner):
-    def __init__(self, *args, **kwargs):
-        super().__init__("HardwareFr", "https://shop.hardware.fr/search/+ftxt-evga-3080+fcat-7492/",
-                         *args, **kwargs)
+class HardwareFrScanner(SearchBasedHtmlScanner):
+    def __init__(self, search_terms: str, **kwargs):
+        name = "HardwareFr"
+        super().__init__(name, search_terms, **kwargs)
 
-    def _scan_html(self, bs: BeautifulSoup) -> bool:
-        script = bs.find_all("script")[9].string
-        found = re.findall(r"\.stock-wrapper.*?stock-([0-9])", script)
-        assert len(found) > 0
-        return any(filter(lambda n: int(n) <= 2, found))
+    @property
+    def target_url(self) -> str:
+        return f"https://shop.hardware.fr/search/+ftxt-{quote('-'.join(self._keywords))}/"
+
+    def _get_all_items_in_page(self, bs: BeautifulSoup) -> List[Tag]:
+        return bs.select("li[data-ref]")
+
+    def _get_item_title(self, item: Tag, bs: BeautifulSoup) -> str:
+        return item.find(class_="description").get_text()
+
+    def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
+        item_id = item.attrs["id"]
+        script_data = ''.join(s.string for s in bs.find_all("script", attrs={"src": None}))
+        stock_type = int(re.search("#{id}.*?stock-wrapper.*?stock-([0-9])".format(id=item_id), script_data)[1])
+        return stock_type <= 2
 
 
 class CaseKingScanner(HtmlScanner):
-    def __init__(self, *args, **kwargs):
-        super().__init__("CaseKing",
-                         "https://www.caseking.de/en/search/index/sSearch/evga+3080/sPerPage/48/sFilter_supplier/EVGA",
-                         *args, **kwargs)
+    def __init__(self, **kwargs):
+        super().__init__("CaseKing", **kwargs)
+
+    @property
+    def target_url(self) -> str:
+        return "https://www.caseking.de/en/search/index/sSearch/evga+3080/sPerPage/48/sFilter_supplier/EVGA"
 
     def _scan_html(self, bs: BeautifulSoup) -> bool:
         def is_3080(art):
@@ -291,11 +313,13 @@ class CaseKingScanner(HtmlScanner):
 
 
 class AlternateScanner(HtmlScanner):
-    def __init__(self, *args, **kwargs):
-        super().__init__("Alternate",
-                         "https://www.alternate.de/html/search.html?query=evga+3080&filter_-1=15500&filter_-1=111900"
-                         "&filter_416=170",
-                         *args, **kwargs)
+    def __init__(self, **kwargs):
+        super().__init__("Alternate", **kwargs)
+
+    @property
+    def target_url(self) -> str:
+        return "https://www.alternate.de/html/search.html?query=evga+3080&filter_-1=15500&filter_-1=111900&filter_416" \
+               "=170"
 
     def _scan_html(self, bs: BeautifulSoup) -> bool:
         assert len(bs.select(".stockStatus")) > 0
@@ -329,11 +353,10 @@ class NvidiaScanner(JsonScanner):
 
 
 class RueDuCommerceScanner(JsonScanner):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__("RueDuCommerce",
                          "https://www.rueducommerce.fr/listingDyn?urlActuelle=evga-3080&boutique_id=18&langue_id=1"
-                         "&recherche=evga-3080&gammesId=25476&from=0",
-                         *args, **kwargs)
+                         "&recherche=evga-3080&gammesId=25476&from=0", **kwargs)
 
     def _scan_json(self, json: dict) -> bool:
         def in_stock(product):
@@ -367,7 +390,7 @@ class MaterielNetScanner(JsonScanner):
                              'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
                              'x-requested-with': 'XMLHttpRequest'
                          },
-                         *args, **kwargs)
+                         **kwargs)
 
     def _scan_json(self, json: dict) -> bool:
         assert len(json["price"]) > 0
