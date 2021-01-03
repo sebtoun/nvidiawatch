@@ -7,6 +7,7 @@ import time
 import random
 from typing import Dict, Union, List, Tuple
 from urllib.parse import quote
+import json
 from json.decoder import JSONDecodeError
 
 
@@ -152,26 +153,24 @@ class HttpScanner(Scanner):
         raise Exception("Not Implemented")
 
     @property
-    def payload(self) -> str:
+    def payload(self) -> Union[str, dict]:
         return ''
 
     def _scan_response(self, resp: requests.Response) -> bool:
         raise Exception("Not Implemented")
 
     @property
-    def additional_headers(self) -> dict:
-        return {}
+    def request_headers(self) -> dict:
+        return {'user-agent': USER_AGENT}
 
     def _scan(self) -> bool:
-        headers = {'user-agent': USER_AGENT}
-        headers.update(self.additional_headers)
         if self.method == 'GET':
             request_method = requests.get
         elif self.method == 'POST':
             request_method = requests.post
         else:
             raise ValueError(f"Unsupported method: {self.method}")
-        resp = request_method(self.target_url, headers=headers, data=self.payload, timeout=self.time_out)
+        resp = request_method(self.target_url, headers=self.request_headers, data=self.payload, timeout=self.time_out)
         resp.raise_for_status()
         return self._scan_response(resp)
 
@@ -197,6 +196,12 @@ class SearchBasedHttpScanner(HttpScanner):
     def _is_item_in_stock(self, item: Item, content: Content) -> bool:
         raise Exception("Not Implemented")
 
+    def _check_stocks(self, items: List[Item], content: Content) -> bool:
+        def is_in_stock(item: SearchBasedHttpScanner.Item) -> bool:
+            return self._is_item_in_stock(item, content)
+
+        return any(map(is_in_stock, items))
+
     def _scan_response(self, resp: requests.Response) -> bool:
         keywords = self._keywords
         blacklist = self._blacklist
@@ -216,10 +221,7 @@ class SearchBasedHttpScanner(HttpScanner):
         self._item_count = len(items)
         assert self._item_count > 0
 
-        def is_in_stock(item: SearchBasedHttpScanner.Item) -> bool:
-            return self._is_item_in_stock(item, content)
-
-        return any(map(is_in_stock, items))
+        return self._check_stocks(items, content)
 
     @property
     def watched_item_count(self) -> int:
@@ -228,32 +230,6 @@ class SearchBasedHttpScanner(HttpScanner):
     @property
     def name(self) -> str:
         return f"{super().name}[{','.join(self._keywords)}]"
-
-
-class JsonScanner(Scanner):
-    def __init__(self, name, url, method='GET', payload=None, additional_headers=None, **kwargs):
-        super().__init__(name)
-        self.target_url = url
-        self.method = method
-        self.payload = payload
-        self.headers = {'user-agent': USER_AGENT}
-        if additional_headers is not None:
-            self.headers.update(additional_headers)
-        self.time_out = kwargs.get("time_out", Scanner.DefaultTimeout)
-
-    def _scan_json(self, json: dict) -> bool:
-        raise Exception("Not Implemented")
-
-    def _scan(self) -> bool:
-        if self.method == 'GET':
-            resp = requests.get(self.target_url, headers=self.headers, timeout=self.time_out)
-        elif self.method == 'POST':
-            resp = requests.post(self.target_url, data=self.payload, headers=self.headers, timeout=self.time_out)
-        else:
-            raise ValueError("Unsupported HTTP method: " + self.method)
-        resp.raise_for_status()
-        json = resp.json()
-        return self._scan_json(json)
 
 
 class LDLCScanner(SearchBasedHttpScanner):
@@ -404,39 +380,44 @@ class RueDuCommerceScanner(SearchBasedHttpScanner):
         return f"https://www.rueducommerce.fr/r/{quote('-'.join(self._keywords))}.html"
 
 
-class MaterielNetScanner(JsonScanner):
-    def __init__(self, **kwargs):
-        super().__init__("MaterielNet",
-                         "https://www.materiel.net/product-listing/stock-price/",
-                         method='POST',
-                         payload="json=%7B%22currencyISOCode3%22%3A%22EUR%22%2C%22offers%22%3A%5B%7B%22offerId%22%3A"
-                                 "%22AR202009090100%22%2C%22marketplace%22%3Afalse%7D%2C%7B%22offerId%22%3A"
-                                 "%22AR202009090101%22%2C%22marketplace%22%3Afalse%7D%2C%7B%22offerId%22%3A"
-                                 "%22AR202012070098%22%2C%22marketplace%22%3Afalse%7D%2C%7B%22offerId%22%3A"
-                                 "%22AR202009090098%22%2C%22marketplace%22%3Afalse%7D%2C%7B%22offerId%22%3A"
-                                 "%22AR202009090099%22%2C%22marketplace%22%3Afalse%7D%2C%7B%22offerId%22%3A"
-                                 "%22AR202009100088%22%2C%22marketplace%22%3Afalse%7D%2C%7B%22offerId%22%3A"
-                                 "%22AR202012070099%22%2C%22marketplace%22%3Afalse%7D%5D%2C%22shops%22%3A%5B%7B"
-                                 "%22shopId%22%3A-1%7D%5D%7D&shopId=-1&displayGroups=Web&shopsAvailability=%7B"
-                                 "%22AR202009090100%22%3A%220%22%2C%22AR202009090101%22%3A%220%22%2C%22AR202012070098"
-                                 "%22%3A%220%22%2C%22AR202009090098%22%3A%220%22%2C%22AR202009090099%22%3A%220%22%2C"
-                                 "%22AR202009100088%22%3A%220%22%2C%22AR202012070099%22%3A%220%22%7D",
-                         additional_headers={
-                             'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                             'x-requested-with': 'XMLHttpRequest'
-                         },
-                         **kwargs)
-
-    def _scan_json(self, json: dict) -> bool:
-        assert len(json["price"]) > 0
-
-        def is_in_stock(art):
-            match = re.search(r"o-availability__value--stock_([0-9])", art)
-            assert match
-            return int(match[1]) <= 2
-
-        return any(map(is_in_stock, json["stock"].values()))
+class MaterielNetScanner(SearchBasedHttpScanner):
+    def __init__(self, search_terms: str, **kwargs):
+        name = "MaterielNet"
+        super().__init__(name, search_terms, **kwargs)
 
     @property
-    def user_url(self) -> str:
-        return "https://www.materiel.net/carte-graphique/l426/+fb-C000033842+fv121-19183/"
+    def target_url(self) -> str:
+        return f"https://www.materiel.net/recherche/{quote('+'.join(self._keywords))}/"
+
+    def _get_all_items_in_page(self, bs: BeautifulSoup) -> List[Tag]:
+        return bs.select("ul.c-products-list li.c-products-list__item")
+
+    def _get_item_title(self, item: Tag, bs: BeautifulSoup) -> str:
+        return item.find(class_="c-product__title").get_text()
+
+    def _is_item_in_stock(self, item: str, bs: BeautifulSoup) -> bool:
+        match = re.search(r"o-availability__value--stock_([0-9])", item)
+        assert match
+        return int(match[1]) <= 2
+
+    def _check_stocks(self, items: List[SearchBasedHttpScanner.Item], content: SearchBasedHttpScanner.Content) -> bool:
+        stock_query_url = "https://www.materiel.net/product-listing/stock-price/"
+        query_offers = [{"offerId": item.attrs["data-offer-id"], "marketplace": False} for item in items]
+        stock_query_payload = {
+            "json": json.dumps({
+                "currencyISOCode3": "EUR",
+                "offers": query_offers,
+                "shops": [
+                    {"shopId": -1}]
+            })
+        }
+        headers = dict(self.request_headers)
+        headers.update({'x-requested-with': 'XMLHttpRequest'})
+        resp = requests.post(stock_query_url, data=stock_query_payload, headers=headers)
+        resp.raise_for_status()
+        item_stocks = list(resp.json()["stock"].values())
+
+        def is_in_stock(item: str) -> bool:
+            return self._is_item_in_stock(item, content)
+
+        return any(map(is_in_stock, item_stocks))

@@ -221,7 +221,7 @@ if __name__ == '__main__':
             TopAchatScanner("evga 3080"),
             # TopAchatScanner("amd ryzen 5900x -kit"),
             RueDuCommerceScanner("evga 3080"),
-            MaterielNetScanner(),
+            MaterielNetScanner("evga 3080"),
             CaseKingScanner("evga 3080"),
             AlternateScanner("evga 3080"),
             # DummyScanner(delay=1, error=2, stocks=2),
