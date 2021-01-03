@@ -20,14 +20,14 @@ class ExitException(Exception):
 
 
 class StockMonitor:
-    def __init__(self, scanners: List[Scanner], update_freq=10):
+    def __init__(self, scanners: List[Scanner], update_freq=10, max_thread=8):
         self._update_freq = update_freq
         self._scanners = scanners
         self._update_results: Union[Iterable[Future], None] = None
         self._last_update_time = None
 
         # update thread
-        self.pool = ThreadPoolExecutor(len(scanners))
+        self.pool = ThreadPoolExecutor(min(max_thread, len(scanners)))
         self._update_thread = None
         self.stop_update = False
 
@@ -209,20 +209,21 @@ if __name__ == '__main__':
             HardwareFrScanner("evga 3080"),
             LDLCScanner("evga 3080"),
             # LDLCScanner("amd ryzen 5900x -kit"),
-            NvidiaScanner(),
+            NvidiaScanner("3080"),
+            NvidiaScanner("3090"),
             TopAchatScanner("evga 3080"),
             # TopAchatScanner("amd ryzen 5900x -kit"),
             RueDuCommerceScanner(),
             MaterielNetScanner(),
-            CaseKingScanner(),
-            AlternateScanner(),
+            CaseKingScanner("evga 3080"),
+            AlternateScanner("evga 3080"),
             # DummyScanner(delay=1, error=2, stocks=2),
             # DummyScanner(delay=1, error=2, stocks=2),
             # DummyScanner(delay=1, error=100, stocks=2),
         ]
 
         def main(stdscr):
-            monitor = StockMonitor(scanners, UPDATE_FREQ)
+            monitor = StockMonitor(scanners, update_freq=UPDATE_FREQ, max_thread=8)
             app = Main(monitor, silent=True)
             try:
                 monitor.start()

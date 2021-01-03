@@ -292,64 +292,96 @@ class HardwareFrScanner(SearchBasedHtmlScanner):
         return stock_type <= 2
 
 
-class CaseKingScanner(HtmlScanner):
-    def __init__(self, **kwargs):
-        super().__init__("CaseKing", **kwargs)
+class CaseKingScanner(SearchBasedHtmlScanner):
+    def __init__(self, search_terms: str, **kwargs):
+        name = "CaseKing"
+        super().__init__(name, search_terms, **kwargs)
 
     @property
     def target_url(self) -> str:
-        return "https://www.caseking.de/en/search/index/sSearch/evga+3080/sPerPage/48/sFilter_supplier/EVGA"
+        return f"https://www.caseking.de/en/search?sSearch={quote('+'.join(self._keywords))}"
 
-    def _scan_html(self, bs: BeautifulSoup) -> bool:
-        def is_3080(art):
-            return "3080" in art.find(class_="producttitles").attrs["data-description"]
+    def _get_all_items_in_page(self, bs: BeautifulSoup) -> List[Tag]:
+        return bs.select(".artbox")
 
-        def is_in_stock(art):
-            return art.find(class_="deliverable1") is not None
+    def _get_item_title(self, item: Tag, bs: BeautifulSoup) -> str:
+        return item.find(class_="producttitles").attrs["data-description"]
 
-        articles = list(filter(is_3080, bs.select(".artbox")))
-        assert len(articles) > 0
-        return any(map(is_in_stock, articles))
+    def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
+        return item.find(class_="deliverable1") is not None
 
 
-class AlternateScanner(HtmlScanner):
-    def __init__(self, **kwargs):
-        super().__init__("Alternate", **kwargs)
+class AlternateScanner(SearchBasedHtmlScanner):
+    def __init__(self, search_terms: str, **kwargs):
+        name = "Alternate"
+        super().__init__(name, search_terms, **kwargs)
 
     @property
     def target_url(self) -> str:
-        return "https://www.alternate.de/html/search.html?query=evga+3080&filter_-1=15500&filter_-1=111900&filter_416" \
-               "=170"
+        return f"https://www.alternate.de/html/search.html?query={quote('+'.join(self._keywords))}"
 
-    def _scan_html(self, bs: BeautifulSoup) -> bool:
-        assert len(bs.select(".stockStatus")) > 0
-        return len(bs.select(".stockStatus.available_stock")) > 0
+    def _get_all_items_in_page(self, bs: BeautifulSoup) -> List[Tag]:
+        return bs.select(".listingContainer .listRow")
+
+    def _get_item_title(self, item: Tag, bs: BeautifulSoup) -> str:
+        return item.find(class_="productLink").attrs["title"]
+
+    def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
+        return item.select_one(".stockStatus.available_stock") is not None
 
 
 class NvidiaScanner(JsonScanner):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, search_terms: str, *args, **kwargs):
+        self._keywords, self._blacklist = parse_search_terms(search_terms)
         super().__init__("Nvidia",
-                         "https://api.nvidia.partners/edge/product/search?page=1&limit=9&locale=fr-fr&category=GPU"
-                         "&gpu=RTX%203080,RTX%203090&manufacturer=NVIDIA&manufacturer_filter=NVIDIA~2,ASUS~8,EVGA~5,"
-                         "GAINWARD~2,GIGABYTE~5,MSI~4,PNY~4,ZOTAC~3",
+                         "https://api.nvidia.partners/edge/product/search?page=1&limit=100&locale=fr-fr&manufacturer=NVIDIA",
                          *args, **kwargs)
 
-    def _scan_json(self, json: dict) -> bool:
+    # @property
+    # def target_url(self) -> str:
+    #     return "https://api.nvidia.partners/edge/product/search?page=1&limit=100&locale=fr-fr&manufacturer=NVIDIA"
+
+    def _get_all_items_in_json(self, json: dict) -> List[dict]:
         products = list(json["searchedProducts"]["productDetails"])
         products.append(json["searchedProducts"]["featuredProduct"])
+        return products
 
-        def validate(product):
-            return product["productSKU"] in ["NVGFT080", "NVGFT090"]
+    def _get_item_title(self, item: dict, json: dict) -> str:
+        return item["productTitle"]
 
-        def is_in_stock(product):
-            return product["prdStatus"] != "out_of_stock"
+    def _is_item_in_stock(self, item: dict, json: dict) -> bool:
+        return item["prdStatus"] != "out_of_stock"
 
-        assert all(map(validate, products))
-        return any(map(is_in_stock, products))
+    def _scan_json(self, json: dict) -> bool:
+        keywords = self._keywords
+        blacklist = self._blacklist
+
+        def is_wanted(item: dict) -> bool:
+            title = self._get_item_title(item, json)
+            assert bool(title)
+            text = title.lower()
+            return all(k in text for k in keywords) and not any(k in text for k in blacklist)
+
+        items = list(filter(is_wanted, self._get_all_items_in_json(json)))
+        self._item_count = len(items)
+        assert self._item_count > 0
+
+        def is_in_stock(item):
+            return self._is_item_in_stock(item, json)
+
+        return any(map(is_in_stock, items))
+
+    @property
+    def watched_item_count(self) -> int:
+        return self._item_count or None
+
+    @property
+    def name(self) -> str:
+        return f"{super().name}[{','.join(self._keywords)}]"
 
     @property
     def user_url(self) -> str:
-        return "https://www.nvidia.com/fr-fr/shop/geforce/?page=1&limit=9&locale=fr-fr"
+        return "https://www.nvidia.com/fr-fr/shop/geforce/?page=1&limit=9&locale=fr-fr&manufacturer=NVIDIA"
 
 
 class RueDuCommerceScanner(JsonScanner):
@@ -370,7 +402,7 @@ class RueDuCommerceScanner(JsonScanner):
 
 
 class MaterielNetScanner(JsonScanner):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__("MaterielNet",
                          "https://www.materiel.net/product-listing/stock-price/",
                          method='POST',
