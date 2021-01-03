@@ -212,23 +212,30 @@ if __name__ == '__main__':
         SILENT = False
         MAX_THREADS = 8
         Scanner.DefaultTimeout = UPDATE_FREQ
-        scanners = [
-            HardwareFrScanner("evga 3080"),
-            LDLCScanner("evga 3080"),
-            # LDLCScanner("amd ryzen 5900x -kit"),
+
+        fe_scanners = [
             NvidiaScanner("3080"),
-            NvidiaScanner("3090"),
-            TopAchatScanner("evga 3080"),
-            # TopAchatScanner("amd ryzen 5900x -kit"),
-            RueDuCommerceScanner("evga 3080"),
-            MaterielNetScanner("evga 3080"),
-            CaseKingScanner("evga 3080"),
-            AlternateScanner("evga 3080"),
-            # DummyScanner(delay=1, error=2, stocks=2),
-            # DummyScanner(delay=1, error=2, stocks=2),
-            # DummyScanner(delay=1, error=2, stocks=2),
+            NvidiaScanner("3090")
+        ]
+        gen_scanners = [
+            ScannerClass("evga 3080") for ScannerClass in [
+                HardwareFrScanner,
+                LDLCScanner,
+                TopAchatScanner,
+                RueDuCommerceScanner,
+                MaterielNetScanner,
+                CaseKingScanner,
+                AlternateScanner,
+            ]
+        ]
+        dummy_scanners = [
+            DummyScanner(delay=1, error=2, stocks=2),
+            DummyScanner(delay=1, error=2, stocks=2),
+            DummyScanner(delay=1, error=2, stocks=2),
         ]
 
+        scanners = fe_scanners + gen_scanners
+        # scanners = dummy_scanners
 
         def main(stdscr):
             monitor = StockMonitor(scanners, update_freq=UPDATE_FREQ, max_thread=MAX_THREADS)
