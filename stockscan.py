@@ -202,6 +202,12 @@ class SearchBasedHttpScanner(HttpScanner):
 
         return any(map(is_in_stock, items))
 
+    def is_title_valid(self, item_title: str) -> bool:
+        keywords = self._keywords
+        blacklist = self._blacklist
+        text = item_title.lower()
+        return all(k in text for k in keywords) and not any(k in text for k in blacklist)
+
     def _scan_response(self, resp: requests.Response) -> bool:
         keywords = self._keywords
         blacklist = self._blacklist
@@ -213,13 +219,12 @@ class SearchBasedHttpScanner(HttpScanner):
 
         def is_wanted(item: SearchBasedHttpScanner.Item) -> bool:
             title = self._get_item_title(item, content)
-            assert bool(title)
-            text = title.lower()
-            return all(k in text for k in keywords) and not any(k in text for k in blacklist)
+            assert bool(title), "Item title not found"
+            return self.is_title_valid(title)
 
         items = list(filter(is_wanted, self._get_all_items_in_page(content)))
         self._item_count = len(items)
-        assert self._item_count > 0
+        assert self._item_count > 0, "No valid item found"
 
         return self._check_stocks(items, content)
 
@@ -242,10 +247,12 @@ class LDLCScanner(SearchBasedHttpScanner):
         return f"https://www.ldlc.com/recherche/{quote('+'.join(self._keywords))}/"
 
     def _get_all_items_in_page(self, bs: BeautifulSoup) -> List[Tag]:
-        return bs.select(".listing-product .pdt-item")
+        return bs.select(".listing-product .pdt-item") or bs.select(".product-bloc")
 
     def _get_item_title(self, item: Tag, bs: BeautifulSoup) -> Tag:
-        return item.find(class_="title-3").get_text()
+        title = item.find(class_="title-3") or item.find(class_="title-1")
+        assert title, "Item title not found"
+        return title.get_text()
 
     def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
         return len(item.select(".stock-web .stock-1,.stock-web .stock-2")) > 0
@@ -261,10 +268,12 @@ class TopAchatScanner(SearchBasedHttpScanner):
         return f"https://www.topachat.com/pages/recherche.php?cat=accueil&etou=0&mc={quote('+'.join(self._keywords))}"
 
     def _get_all_items_in_page(self, bs: BeautifulSoup) -> List[Tag]:
-        return bs.select('.produits.list article')
+        return bs.select('.produits.list article') or bs.select('article#content')
 
     def _get_item_title(self, item: Tag, bs: BeautifulSoup) -> str:
-        return item.find(class_="libelle").get_text()
+        title = item.select(".libelle h1, .libelle h2, .libelle h3")
+        assert title, "Item title not found"
+        return title[0].get_text()
 
     def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
         return item.find(class_="en-stock") is not None
@@ -280,16 +289,26 @@ class HardwareFrScanner(SearchBasedHttpScanner):
         return f"https://shop.hardware.fr/search/+ftxt-{quote('-'.join(self._keywords))}/"
 
     def _get_all_items_in_page(self, bs: BeautifulSoup) -> List[Tag]:
-        return bs.select("li[data-ref]")
+        return bs.select("li[data-ref]") or bs.select("div#infosProduit")
 
     def _get_item_title(self, item: Tag, bs: BeautifulSoup) -> str:
-        return item.find(class_="description").get_text()
+        title = item.select(".description h2,#description h1")
+        assert len(title) == 1, "Item title not found"
+        return title[0].get_text()
 
     def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
         item_id = item.attrs["id"]
-        script_data = ''.join(s.string for s in bs.find_all("script", attrs={"src": None}))
-        stock_type = int(re.search("#{id}.*?stock-wrapper.*?stock-([0-9])".format(id=item_id), script_data)[1])
-        return stock_type <= 2
+        if item_id == "infosProduit":  # single element page
+            metadata = bs.find("script", attrs={'type': 'application/ld+json'})
+            assert metadata, "Could not find stock status"
+            metadata_json = json.loads(metadata.string)
+            assert self.is_title_valid(metadata_json["name"]), "Wrong item metadata"
+            return metadata_json["offers"]["availability"] in [
+                'http://schema.org/InStock', 'http://schema.org/OnlineOnly', 'http://schema.org/LimitedAvailability']
+        else:  # multiple results page
+            script_data = ''.join(s.string for s in bs.find_all("script", attrs={"src": None}))
+            stock_type = int(re.search("#{id}.*?stock-wrapper.*?stock-([0-9])".format(id=item_id), script_data)[1])
+            return stock_type <= 2
 
 
 class CaseKingScanner(SearchBasedHttpScanner):
@@ -372,7 +391,7 @@ class RueDuCommerceScanner(SearchBasedHttpScanner):
         return f"{item['fournisseur_nom']} - {item['produit_nom_nom']}"
 
     def _is_item_in_stock(self, item: dict, json: dict) -> bool:
-        assert item["shop_name"] == "Rue du Commerce"
+        assert item["shop_name"] == "Rue du Commerce", f"Wrong shop name: {item['shop_name']}"
         return item["Disponibilite"] == "en stock"
 
     @property
@@ -390,19 +409,25 @@ class MaterielNetScanner(SearchBasedHttpScanner):
         return f"https://www.materiel.net/recherche/{quote('+'.join(self._keywords))}/"
 
     def _get_all_items_in_page(self, bs: BeautifulSoup) -> List[Tag]:
-        return bs.select("ul.c-products-list li.c-products-list__item")
+        return bs.select("ul.c-products-list li.c-products-list__item") or bs.select("#tpl__product-page")
 
     def _get_item_title(self, item: Tag, bs: BeautifulSoup) -> str:
-        return item.find(class_="c-product__title").get_text()
+        title = item.select(".c-products-list__item .c-product__title, .c-product__header h1")
+        assert len(title) == 1, "Multiple item title found or no title found"
+        return title[0].get_text()
 
     def _is_item_in_stock(self, item: str, bs: BeautifulSoup) -> bool:
         match = re.search(r"o-availability__value--stock_([0-9])", item)
-        assert match
+        assert match, "Failed to match string looking for stock"
         return int(match[1]) <= 2
 
     def _check_stocks(self, items: List[SearchBasedHttpScanner.Item], content: SearchBasedHttpScanner.Content) -> bool:
         stock_query_url = "https://www.materiel.net/product-listing/stock-price/"
-        query_offers = [{"offerId": item.attrs["data-offer-id"], "marketplace": False} for item in items]
+
+        def get_item_id(item: Tag):
+            return item.select_one("[data-offer-id]").attrs["data-offer-id"]
+
+        query_offers = [{"offerId": get_item_id(item), "marketplace": False} for item in items]
         stock_query_payload = {
             "json": json.dumps({
                 "currencyISOCode3": "EUR",

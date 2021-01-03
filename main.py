@@ -53,7 +53,7 @@ class StockMonitor:
             scanner.clear_last_error()
 
     def start(self):
-        assert self._update_thread is None
+        assert self._update_thread is None, "Thread already running"
         self.stop_update = False
         self._update_thread = threading.Thread(target=self._update_loop)
         self._update_thread.start()
@@ -209,7 +209,7 @@ class Main:
 if __name__ == '__main__':
     try:
         UPDATE_FREQ = 10
-        SILENT = False
+        SILENT = True
         MAX_THREADS = 8
         Scanner.DefaultTimeout = UPDATE_FREQ
 
