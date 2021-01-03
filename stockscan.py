@@ -129,7 +129,7 @@ class DummyScanner(Scanner):
 
     @property
     def user_url(self) -> str:
-        return ""
+        return "http://www.dummy.com/"
 
     def _scan(self) -> bool:
         if self._delay > 0:

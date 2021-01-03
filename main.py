@@ -87,6 +87,7 @@ class Main:
         curses.use_default_colors()
         curses.init_pair(1, curses.COLOR_RED, -1)
         curses.init_pair(2, curses.COLOR_GREEN, -1)
+        curses.init_pair(3, curses.COLOR_BLUE, -1)
 
         state_names = {
             Scanner.InStock: "In Stock",
@@ -102,10 +103,10 @@ class Main:
                         ("Last Stock", len(datetime.now().strftime(time_format))),
                         ("Details", -1)),
             "state_names": state_names,
-            "state_attributes": {
-                Scanner.InStock: curses.A_STANDOUT | curses.color_pair(2),
+            "state_colors": {
+                Scanner.InStock: curses.color_pair(2),
                 Scanner.Unavailable: 0,
-                Scanner.Error: curses.A_STANDOUT | curses.color_pair(1)
+                Scanner.Error: curses.color_pair(1)
             },
             "time_format": time_format
         }
@@ -146,29 +147,32 @@ class Main:
             stdscr.addstr(y, x, column[0])
             x += column[1] + padding[0]
 
-        y += padding[1] + 1
+        y += 1
         for i, scanner in enumerate(self.monitor.scanners):
             x = padding[0]
 
-            stdscr.addstr(y, x, scanner.name)
+            state = scanner.last_sate
+            color = int(self.layout["state_colors"][state])
+            stdscr.addstr(y, x, scanner.name, color)
             x += columns[0][1] + padding[0]
 
-            state = self.layout["state_names"][scanner.last_sate]
+            state_name = self.layout["state_names"][state]
             if scanner.has_error:
-                state += f" #{'>' if scanner.consecutive_errors > 9 else ''}{min(9, scanner.consecutive_errors)}"
+                state_name += f" #{'>' if scanner.consecutive_errors > 9 else ''}{min(9, scanner.consecutive_errors)}"
+            state_attr = 0 if state is Scanner.Unavailable else curses.A_STANDOUT
             stdscr.addstr(y, x,
-                          state,
-                          self.layout["state_attributes"][scanner.last_sate])
+                          state_name,
+                          color | state_attr)
             x += columns[1][1] + padding[0]
 
             if scanner.last_scan_time is not None:
                 elapsed = datetime.now() - scanner.last_scan_time
-                stdscr.addstr(y, x, f"{int(elapsed.total_seconds()):>2}s ago")
+                stdscr.addstr(y, x, f"{int(elapsed.total_seconds()):>2}s ago", color)
             x += columns[2][1] + padding[0]
 
             time_format = self.layout["time_format"]
             if scanner.last_stock_time is not None:
-                stdscr.addstr(y, x, scanner.last_stock_time.strftime(time_format))
+                stdscr.addstr(y, x, scanner.last_stock_time.strftime(time_format), color)
             x += columns[3][1] + padding[0]
 
             try:
@@ -176,14 +180,15 @@ class Main:
             except:
                 detail = None
             if scanner.last_error is not None:
-                stdscr.addstr(y, x, f"{scanner.last_error}")
+                stdscr.addstr(y, x, f"{scanner.last_error}", color)
             elif detail is not None:
-                stdscr.addstr(y, x, detail)
+                stdscr.addstr(y, x, detail, color)
 
             stdscr.addstr(y + 1, padding[0],
-                          f"\tCheck {scanner.user_url}")
+                          f"\tCheck ")
+            stdscr.addstr(scanner.user_url, curses.color_pair(3) | curses.A_UNDERLINE)
 
-            y += 3
+            y += 2
 
         stdscr.addstr(y, padding[0],
                       f"[press 'q' to quit, 'c' to clear errors]")
@@ -204,6 +209,8 @@ class Main:
 if __name__ == '__main__':
     try:
         UPDATE_FREQ = 10
+        SILENT = False
+        MAX_THREADS = 8
         Scanner.DefaultTimeout = UPDATE_FREQ
         scanners = [
             HardwareFrScanner("evga 3080"),
@@ -219,12 +226,13 @@ if __name__ == '__main__':
             AlternateScanner("evga 3080"),
             # DummyScanner(delay=1, error=2, stocks=2),
             # DummyScanner(delay=1, error=2, stocks=2),
-            # DummyScanner(delay=1, error=100, stocks=2),
+            # DummyScanner(delay=1, error=2, stocks=2),
         ]
 
+
         def main(stdscr):
-            monitor = StockMonitor(scanners, update_freq=UPDATE_FREQ, max_thread=8)
-            app = Main(monitor, silent=True)
+            monitor = StockMonitor(scanners, update_freq=UPDATE_FREQ, max_thread=MAX_THREADS)
+            app = Main(monitor, silent=SILENT)
             try:
                 monitor.start()
                 while True:
@@ -234,6 +242,7 @@ if __name__ == '__main__':
                 pass
             finally:
                 monitor.terminate()
+
 
         curses.wrapper(main)
         print("exiting...")
