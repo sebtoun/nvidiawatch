@@ -57,6 +57,9 @@ class Scanner:
     def watched_item_count(self) -> int:
         raise Exception("Not Implemented")
 
+    def get_details(self) -> List[Tuple[str, str, bool]]:
+        raise Exception("Not Implemented")
+
     def update(self) -> None:
         try:
             if self._scan():
@@ -196,11 +199,22 @@ class SearchBasedHttpScanner(HttpScanner):
     def _is_item_in_stock(self, item: Item, content: Content) -> bool:
         raise Exception("Not Implemented")
 
+    def _get_item_price(self, item: Item, content: Content) -> str:
+        raise Exception("Not Implemented")
+
     def _check_stocks(self, items: List[Item], content: Content) -> bool:
         def is_in_stock(item: SearchBasedHttpScanner.Item) -> bool:
             return self._is_item_in_stock(item, content)
 
         return any(map(is_in_stock, items))
+
+    def _filter_result(self, content: Content) -> List[Item]:
+        def is_wanted(item: SearchBasedHttpScanner.Item) -> bool:
+            title = self._get_item_title(item, content)
+            assert bool(title), "Item title not found"
+            return self.is_title_valid(title)
+
+        return list(filter(is_wanted, self._get_all_items_in_page(content)))
 
     def is_title_valid(self, item_title: str) -> bool:
         keywords = self._keywords
@@ -209,20 +223,12 @@ class SearchBasedHttpScanner(HttpScanner):
         return all(k in text for k in keywords) and not any(k in text for k in blacklist)
 
     def _scan_response(self, resp: requests.Response) -> bool:
-        keywords = self._keywords
-        blacklist = self._blacklist
-
         try:
             content = resp.json()
         except JSONDecodeError:
             content = make_soup(resp)
 
-        def is_wanted(item: SearchBasedHttpScanner.Item) -> bool:
-            title = self._get_item_title(item, content)
-            assert bool(title), "Item title not found"
-            return self.is_title_valid(title)
-
-        items = list(filter(is_wanted, self._get_all_items_in_page(content)))
+        items = self._filter_result(content)
         self._item_count = len(items)
         assert self._item_count > 0, "No valid item found"
 
@@ -234,7 +240,7 @@ class SearchBasedHttpScanner(HttpScanner):
 
     @property
     def name(self) -> str:
-        return f"{super().name}[{','.join(self._keywords)}]"
+        return f"{super().name}[{'+'.join(self._keywords)}]"
 
 
 class LDLCScanner(SearchBasedHttpScanner):
@@ -254,6 +260,9 @@ class LDLCScanner(SearchBasedHttpScanner):
         assert title, "Item title not found"
         return title.get_text()
 
+    def _get_item_price(self, item: Tag, bs: BeautifulSoup) -> str:
+        return item.select_one(".price").get_text()
+
     def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
         return len(item.select(".stock-web .stock-1,.stock-web .stock-2")) > 0
 
@@ -268,12 +277,20 @@ class TopAchatScanner(SearchBasedHttpScanner):
         return f"https://www.topachat.com/pages/recherche.php?cat=accueil&etou=0&mc={quote('+'.join(self._keywords))}"
 
     def _get_all_items_in_page(self, bs: BeautifulSoup) -> List[Tag]:
-        return bs.select('.produits.list article') or bs.select('article#content')
+        items = bs.select('.produits.list article')
+        if not items:
+            product = bs.select_one('.product-sheet')
+            if product is not None:
+                items.append(product.parent)
+        return items
 
     def _get_item_title(self, item: Tag, bs: BeautifulSoup) -> str:
         title = item.select(".libelle h1, .libelle h2, .libelle h3")
         assert title, "Item title not found"
         return title[0].get_text()
+
+    def _get_item_price(self, item: Tag, bs: BeautifulSoup) -> str:
+        return item.select_one(".prod_px_euro,.priceFinal.fp44").get_text()
 
     def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
         return item.find(class_="en-stock") is not None
@@ -295,6 +312,11 @@ class HardwareFrScanner(SearchBasedHttpScanner):
         title = item.select(".description h2,#description h1")
         assert len(title) == 1, "Item title not found"
         return title[0].get_text()
+
+    def _get_item_price(self, item: Tag, bs: BeautifulSoup) -> str:
+        price = item.select_one(".prix")
+        assert price, "Item price not found"
+        return price.get_text().strip()
 
     def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
         item_id = item.attrs["id"]
@@ -326,6 +348,9 @@ class CaseKingScanner(SearchBasedHttpScanner):
     def _get_item_title(self, item: Tag, bs: BeautifulSoup) -> str:
         return item.find(class_="producttitles").attrs["data-description"]
 
+    def _get_item_price(self, item: Tag, bs: BeautifulSoup) -> str:
+        return item.select_one(".price").get_text().strip()
+
     def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
         return item.find(class_="deliverable1") is not None
 
@@ -344,6 +369,9 @@ class AlternateScanner(SearchBasedHttpScanner):
 
     def _get_item_title(self, item: Tag, bs: BeautifulSoup) -> str:
         return item.find(class_="productLink").attrs["title"]
+
+    def _get_item_price(self, item: Tag, content: BeautifulSoup) -> str:
+        return item.select_one(".price").get_text().strip()
 
     def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
         return item.select_one(".stockStatus.available_stock") is not None
@@ -365,6 +393,9 @@ class NvidiaScanner(SearchBasedHttpScanner):
 
     def _get_item_title(self, item: dict, json: dict) -> str:
         return item["productTitle"]
+
+    def _get_item_price(self, item: dict, content: dict) -> str:
+        return item["productPrice"]
 
     def _is_item_in_stock(self, item: dict, json: dict) -> bool:
         return item["prdStatus"] != "out_of_stock"
@@ -389,6 +420,9 @@ class RueDuCommerceScanner(SearchBasedHttpScanner):
 
     def _get_item_title(self, item: dict, json: dict) -> str:
         return f"{item['fournisseur_nom']} - {item['produit_nom_nom']}"
+
+    def _get_item_price(self, item: dict, json: dict) -> str:
+        return item["produit_prix_ttc"]
 
     def _is_item_in_stock(self, item: dict, json: dict) -> bool:
         assert item["shop_name"] == "Rue du Commerce", f"Wrong shop name: {item['shop_name']}"

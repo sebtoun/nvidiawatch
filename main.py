@@ -209,7 +209,7 @@ class Main:
 if __name__ == '__main__':
     try:
         UPDATE_FREQ = 10
-        SILENT = True
+        SILENT = False
         MAX_THREADS = 8
         Scanner.DefaultTimeout = UPDATE_FREQ
 
