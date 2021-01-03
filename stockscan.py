@@ -7,6 +7,7 @@ import time
 import random
 from typing import Dict, Union, List, Tuple
 from urllib.parse import quote
+from json.decoder import JSONDecodeError
 
 
 def make_soup(resp: requests.Response):
@@ -140,60 +141,83 @@ class DummyScanner(Scanner):
         return outcome
 
 
-class HtmlScanner(Scanner):
-    def __init__(self, name, **kwargs):
+class HttpScanner(Scanner):
+    def __init__(self, name: str, method='GET', **kwargs):
         super().__init__(name)
-        self.headers = {'user-agent': USER_AGENT}
+        self.method = method
         self.time_out = kwargs.get("time_out", Scanner.DefaultTimeout)
 
     @property
     def target_url(self) -> str:
         raise Exception("Not Implemented")
 
-    def _scan_html(self, bs: BeautifulSoup) -> bool:
+    @property
+    def payload(self) -> str:
+        return ''
+
+    def _scan_response(self, resp: requests.Response) -> bool:
         raise Exception("Not Implemented")
 
+    @property
+    def additional_headers(self) -> dict:
+        return {}
+
     def _scan(self) -> bool:
-        resp = requests.get(self.target_url, headers=self.headers, timeout=self.time_out)
+        headers = {'user-agent': USER_AGENT}
+        headers.update(self.additional_headers)
+        if self.method == 'GET':
+            request_method = requests.get
+        elif self.method == 'POST':
+            request_method = requests.post
+        else:
+            raise ValueError(f"Unsupported method: {self.method}")
+        resp = request_method(self.target_url, headers=headers, data=self.payload, timeout=self.time_out)
         resp.raise_for_status()
-        bs = make_soup(resp)
-        return self._scan_html(bs)
+        return self._scan_response(resp)
 
     @property
     def user_url(self) -> str:
         return self.target_url
 
 
-class SearchBasedHtmlScanner(HtmlScanner):
+class SearchBasedHttpScanner(HttpScanner):
+    Item = Union[dict, Tag]
+    Content = Union[dict, BeautifulSoup]
+
     def __init__(self, name: str, search_terms: str, **kwargs):
         self._keywords, self._blacklist = parse_search_terms(search_terms)
         super().__init__(name, **kwargs)
 
-    def _get_all_items_in_page(self, bs: BeautifulSoup) -> List[Tag]:
+    def _get_all_items_in_page(self, content: Content) -> List[Item]:
         raise Exception("Not Implemented")
 
-    def _get_item_title(self, item: Tag, bs: BeautifulSoup) -> str:
+    def _get_item_title(self, item: Item, content: Content) -> str:
         raise Exception("Not Implemented")
 
-    def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
+    def _is_item_in_stock(self, item: Item, content: Content) -> bool:
         raise Exception("Not Implemented")
 
-    def _scan_html(self, bs: BeautifulSoup) -> bool:
+    def _scan_response(self, resp: requests.Response) -> bool:
         keywords = self._keywords
         blacklist = self._blacklist
 
-        def is_wanted(item: Tag) -> bool:
-            title = self._get_item_title(item, bs)
+        try:
+            content = resp.json()
+        except JSONDecodeError:
+            content = make_soup(resp)
+
+        def is_wanted(item: SearchBasedHttpScanner.Item) -> bool:
+            title = self._get_item_title(item, content)
             assert bool(title)
             text = title.lower()
             return all(k in text for k in keywords) and not any(k in text for k in blacklist)
 
-        items = list(filter(is_wanted, self._get_all_items_in_page(bs)))
+        items = list(filter(is_wanted, self._get_all_items_in_page(content)))
         self._item_count = len(items)
         assert self._item_count > 0
 
-        def is_in_stock(item):
-            return self._is_item_in_stock(item, bs)
+        def is_in_stock(item: SearchBasedHttpScanner.Item) -> bool:
+            return self._is_item_in_stock(item, content)
 
         return any(map(is_in_stock, items))
 
@@ -232,10 +256,10 @@ class JsonScanner(Scanner):
         return self._scan_json(json)
 
 
-class LDLCScanner(SearchBasedHtmlScanner):
+class LDLCScanner(SearchBasedHttpScanner):
     def __init__(self, search_terms: str, **kwargs):
         name = "LDLC"
-        super().__init__(name, search_terms, ** kwargs)
+        super().__init__(name, search_terms, **kwargs)
 
     @property
     def target_url(self) -> str:
@@ -251,7 +275,7 @@ class LDLCScanner(SearchBasedHtmlScanner):
         return len(item.select(".stock-web .stock-1,.stock-web .stock-2")) > 0
 
 
-class TopAchatScanner(SearchBasedHtmlScanner):
+class TopAchatScanner(SearchBasedHttpScanner):
     def __init__(self, search_terms: str, **kwargs):
         name = "TopAchat"
         super().__init__(name, search_terms, **kwargs)
@@ -270,7 +294,7 @@ class TopAchatScanner(SearchBasedHtmlScanner):
         return item.find(class_="en-stock") is not None
 
 
-class HardwareFrScanner(SearchBasedHtmlScanner):
+class HardwareFrScanner(SearchBasedHttpScanner):
     def __init__(self, search_terms: str, **kwargs):
         name = "HardwareFr"
         super().__init__(name, search_terms, **kwargs)
@@ -292,7 +316,7 @@ class HardwareFrScanner(SearchBasedHtmlScanner):
         return stock_type <= 2
 
 
-class CaseKingScanner(SearchBasedHtmlScanner):
+class CaseKingScanner(SearchBasedHttpScanner):
     def __init__(self, search_terms: str, **kwargs):
         name = "CaseKing"
         super().__init__(name, search_terms, **kwargs)
@@ -311,7 +335,7 @@ class CaseKingScanner(SearchBasedHtmlScanner):
         return item.find(class_="deliverable1") is not None
 
 
-class AlternateScanner(SearchBasedHtmlScanner):
+class AlternateScanner(SearchBasedHttpScanner):
     def __init__(self, search_terms: str, **kwargs):
         name = "Alternate"
         super().__init__(name, search_terms, **kwargs)
@@ -330,18 +354,16 @@ class AlternateScanner(SearchBasedHtmlScanner):
         return item.select_one(".stockStatus.available_stock") is not None
 
 
-class NvidiaScanner(JsonScanner):
-    def __init__(self, search_terms: str, *args, **kwargs):
-        self._keywords, self._blacklist = parse_search_terms(search_terms)
-        super().__init__("Nvidia",
-                         "https://api.nvidia.partners/edge/product/search?page=1&limit=100&locale=fr-fr&manufacturer=NVIDIA",
-                         *args, **kwargs)
+class NvidiaScanner(SearchBasedHttpScanner):
+    def __init__(self, search_terms: str, **kwargs):
+        name = "Nvidia"
+        super().__init__(name, search_terms, **kwargs)
 
-    # @property
-    # def target_url(self) -> str:
-    #     return "https://api.nvidia.partners/edge/product/search?page=1&limit=100&locale=fr-fr&manufacturer=NVIDIA"
+    @property
+    def target_url(self) -> str:
+        return "https://api.nvidia.partners/edge/product/search?page=1&limit=100&locale=fr-fr&manufacturer=NVIDIA"
 
-    def _get_all_items_in_json(self, json: dict) -> List[dict]:
+    def _get_all_items_in_page(self, json: dict) -> List[dict]:
         products = list(json["searchedProducts"]["productDetails"])
         products.append(json["searchedProducts"]["featuredProduct"])
         return products
@@ -352,53 +374,34 @@ class NvidiaScanner(JsonScanner):
     def _is_item_in_stock(self, item: dict, json: dict) -> bool:
         return item["prdStatus"] != "out_of_stock"
 
-    def _scan_json(self, json: dict) -> bool:
-        keywords = self._keywords
-        blacklist = self._blacklist
-
-        def is_wanted(item: dict) -> bool:
-            title = self._get_item_title(item, json)
-            assert bool(title)
-            text = title.lower()
-            return all(k in text for k in keywords) and not any(k in text for k in blacklist)
-
-        items = list(filter(is_wanted, self._get_all_items_in_json(json)))
-        self._item_count = len(items)
-        assert self._item_count > 0
-
-        def is_in_stock(item):
-            return self._is_item_in_stock(item, json)
-
-        return any(map(is_in_stock, items))
-
-    @property
-    def watched_item_count(self) -> int:
-        return self._item_count or None
-
-    @property
-    def name(self) -> str:
-        return f"{super().name}[{','.join(self._keywords)}]"
-
     @property
     def user_url(self) -> str:
         return "https://www.nvidia.com/fr-fr/shop/geforce/?page=1&limit=9&locale=fr-fr&manufacturer=NVIDIA"
 
 
-class RueDuCommerceScanner(JsonScanner):
-    def __init__(self, **kwargs):
-        super().__init__("RueDuCommerce",
-                         "https://www.rueducommerce.fr/listingDyn?urlActuelle=evga-3080&boutique_id=18&langue_id=1"
-                         "&recherche=evga-3080&gammesId=25476&from=0", **kwargs)
+class RueDuCommerceScanner(SearchBasedHttpScanner):
+    def __init__(self, search_terms: str, **kwargs):
+        name = "RueDuCommerce"
+        super().__init__(name, search_terms, **kwargs)
 
-    def _scan_json(self, json: dict) -> bool:
-        def in_stock(product):
-            return product["Disponibilite"] == "en stock"
+    @property
+    def target_url(self) -> str:
+        return "https://www.rueducommerce.fr/listingDyn?" \
+               f"boutique_id=18&langue_id=1&recherche={quote('-'.join(self._keywords))}&from=0"
 
-        return any(filter(in_stock, json["produits"]))
+    def _get_all_items_in_page(self, json: dict) -> List[dict]:
+        return json["produits"]
+
+    def _get_item_title(self, item: dict, json: dict) -> str:
+        return f"{item['fournisseur_nom']} - {item['produit_nom_nom']}"
+
+    def _is_item_in_stock(self, item: dict, json: dict) -> bool:
+        assert item["shop_name"] == "Rue du Commerce"
+        return item["Disponibilite"] == "en stock"
 
     @property
     def user_url(self) -> str:
-        return "https://www.rueducommerce.fr/r/evga-3080.html"
+        return f"https://www.rueducommerce.fr/r/{quote('-'.join(self._keywords))}.html"
 
 
 class MaterielNetScanner(JsonScanner):
