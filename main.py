@@ -1,12 +1,18 @@
 from datetime import datetime
-import time
 from playsound import playsound
-import curses
+from multiprocessing import Process
+from typing import Optional
 from stockscan import Scanner, DummyScanner, StockMonitor
 from stockscan.vendors import HardwareFrScanner, LDLCScanner, NvidiaScanner, TopAchatScanner, RueDuCommerceScanner, \
     MaterielNetScanner, CaseKingScanner, AlternateScanner
+
 import traceback
-import threading
+import time
+import curses
+import logging
+
+
+logging.basicConfig(filename='output.log', filemode='w')
 
 
 def loop(file):
@@ -26,7 +32,8 @@ class Main:
         self.silent = silent
 
         # notifications
-        self._notification_thread = None
+        self._notification_process: Optional[Process] = None
+        self._notification_state: str = Scanner.Unavailable
 
         # init layout
         curses.use_default_colors()
@@ -57,28 +64,56 @@ class Main:
         }
 
     def _play_loop(self, file):
-        if not self.silent and self._notification_thread is None:
-            self._notification_thread = threading.Thread(target=loop,
-                                                         args=(file,))
-            self._notification_thread.start()
+        logging.debug("create notification process")
+        self._notification_process = Process(target=loop,
+                                             args=(file,))
+        self._notification_process.daemon = True
+        self._notification_process.start()
 
-    def _play_ok_sound(self):
-        self._play_loop("data/whohoo.mp3")
+    def _stop_sound(self):
+        if self._notification_process is not None:
+            logging.debug("killing notification process")
+            self._notification_process.terminate()
+            while self._notification_process.is_alive():
+                time.sleep(0.1)
+            self._notification_process.close()
+            self._notification_process = None
+            logging.debug("notification process killed")
 
-    def _play_error_sound(self):
-        self._play_loop("data/nooo.mp3")
+    @property
+    def _is_playing_sound(self):
+        return self._notification_process is not None
+
+    def _play_sound_for_state(self):
+        if self._is_playing_sound:
+            self._stop_sound()
+        if not self.silent:
+            if self._notification_state == Scanner.InStock:
+                self._play_loop("data/whohoo.mp3")
+            elif self._notification_state == Scanner.Error:
+                self._play_loop("data/nooo.mp3")
+
+    def _notify_state(self, state: str):
+        if self._notification_state is state:
+            return
+        self._notification_state = state
+        logging.info(f"notification state going to: {state}")
+        self._play_sound_for_state()
 
     def _notifications(self):
-        def has_stock(s: Scanner):
-            return s.in_stock
+        if any(s.in_stock for s in self.monitor.scanners):
+            self._notify_state(Scanner.InStock)
+        elif any(s.consecutive_errors >= Main.MAX_FAIL for s in self.monitor.scanners):
+            self._notify_state(Scanner.Error)
+        else:
+            self._notify_state(Scanner.Unavailable)
 
-        def has_errors(s: Scanner):
-            return s.consecutive_errors >= Main.MAX_FAIL
-
-        if any(map(has_stock, self.monitor.scanners)):
-            self._play_ok_sound()
-        elif any(map(has_errors, self.monitor.scanners)):
-            self._play_error_sound()
+    def toggle_mute(self):
+        self.silent = not self.silent
+        if self.silent and self._is_playing_sound:
+            self._stop_sound()
+        elif not self.silent:
+            self._play_sound_for_state()
 
     @staticmethod
     def add_centered(stdscr, text, *args, **kwargs):
@@ -160,16 +195,16 @@ class Main:
         elif key == 'c' or key == 'C':
             self.monitor.clear_errors()
         elif key == 'm' or key == 'M':
-            self.silent = not self.silent
+            self.toggle_mute()
 
 
 if __name__ == '__main__':
     try:
-        UPDATE_FREQ = 10
+        UPDATE_FREQ = 30
         SILENT = False
         MAX_THREADS = 8
-        Scanner.DefaultTimeout = UPDATE_FREQ
 
+        Scanner.DefaultTimeout = UPDATE_FREQ
         fe_scanners = [
             NvidiaScanner("3080"),
             NvidiaScanner("3090")
@@ -186,9 +221,9 @@ if __name__ == '__main__':
             ]
         ]
         dummy_scanners = [
-            DummyScanner(delay=1, error=2, stocks=2),
-            DummyScanner(delay=1, error=2, stocks=2),
-            DummyScanner(delay=1, error=2, stocks=2),
+            DummyScanner(delay=1, error=1, stocks=100),
+            # DummyScanner(delay=1, error=10, stocks=2),
+            # DummyScanner(delay=1, error=2, stocks=2),
         ]
 
         scanners = fe_scanners + gen_scanners
