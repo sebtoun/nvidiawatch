@@ -1,9 +1,4 @@
-beautifulsoup4==4.9.3
-certifi==2020.12.5
-chardet==4.0.0
-./deps/curses-2.2.1+utf8-cp37-cp37m-win_amd64.whl
-idna==2.10
-playsound==1.2.2
 requests==2.25.1
-soupsieve==2.1
-urllib3==1.26.2
+beautifulsoup4==4.9.3
+windows-curses==2.2.0; sys_platform == 'win32'
+playsound==1.2.2
