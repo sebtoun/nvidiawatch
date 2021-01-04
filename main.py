@@ -1,11 +1,10 @@
 from datetime import datetime
 import time
 from playsound import playsound
-from typing import List, Union, Iterable
-from concurrent.futures import ThreadPoolExecutor, Future
 import curses
-from stockscan import Scanner, HardwareFrScanner, LDLCScanner, NvidiaScanner, TopAchatScanner, RueDuCommerceScanner, \
-    MaterielNetScanner, CaseKingScanner, AlternateScanner, DummyScanner
+from stockscan import Scanner, DummyScanner, StockMonitor
+from stockscan.vendors import HardwareFrScanner, LDLCScanner, NvidiaScanner, TopAchatScanner, RueDuCommerceScanner, \
+    MaterielNetScanner, CaseKingScanner, AlternateScanner
 import traceback
 import threading
 
@@ -17,60 +16,6 @@ def loop(file):
 
 class ExitException(Exception):
     pass
-
-
-class StockMonitor:
-    def __init__(self, scanners: List[Scanner], update_freq=10, max_thread=8):
-        self._update_freq = update_freq
-        self._scanners = scanners
-        self._update_results: Union[Iterable[Future], None] = None
-        self._last_update_time = None
-
-        # update thread
-        self.pool = ThreadPoolExecutor(min(max_thread, len(scanners)))
-        self._update_thread = None
-        self.stop_update = False
-
-    def _update_scanners(self):
-        def update_scanner(scanner: Scanner):
-            scanner.update()
-
-        self._last_update_time = datetime.now()
-        self._update_results = [self.pool.submit(update_scanner, scanner) for scanner in self._scanners]
-
-    def _update_loop(self):
-        self._update_scanners()
-        while not self.stop_update:
-            update_pending = any(map(lambda f: not f.done(), self._update_results))
-            delay_elapsed = (datetime.now() - self._last_update_time).total_seconds() >= self._update_freq
-            if update_pending or not delay_elapsed:
-                time.sleep(0.5)
-            else:
-                self._update_scanners()
-
-    def clear_errors(self):
-        for scanner in self._scanners:
-            scanner.clear_last_error()
-
-    def start(self):
-        assert self._update_thread is None, "Thread already running"
-        self.stop_update = False
-        self._update_thread = threading.Thread(target=self._update_loop)
-        self._update_thread.start()
-
-    def terminate(self):
-        if self._update_thread is not None:
-            self.stop_update = True
-            self._update_thread.join()
-        self.pool.shutdown(wait=False)
-        if self._update_results is not None:
-            for f in self._update_results:
-                if not f.done():
-                    f.cancel()
-
-    @property
-    def scanners(self):
-        return self._scanners
 
 
 class Main:
@@ -135,6 +80,13 @@ class Main:
         elif any(map(has_errors, self.monitor.scanners)):
             self._play_error_sound()
 
+    @staticmethod
+    def add_centered(stdscr, text, *args, **kwargs):
+        _, cols = stdscr.getmaxyx()
+        y, _ = stdscr.getyx()
+        x = (cols - len(text)) // 2
+        stdscr.addstr(y, x, text, *args, **kwargs)
+
     def draw(self, stdscr):
         self._notifications()
         stdscr.clear()
@@ -142,6 +94,7 @@ class Main:
 
         padding = self.layout["padding"]
         x, y = padding
+
         columns = self.layout["columns"]
         for column in columns:
             stdscr.addstr(y, x, column[0])
@@ -190,8 +143,10 @@ class Main:
 
             y += 2
 
-        stdscr.addstr(y, padding[0],
-                      f"[press 'q' to quit, 'c' to clear errors]")
+        stdscr.addstr(y, padding[0], f"[ 'Q'uit | 'C'lear errors | ")
+        mute_cmd = "Un'm'ute" if self.silent else "'M'ute"
+        stdscr.addstr(mute_cmd, curses.A_STANDOUT if self.silent else 0)
+        stdscr.addstr(" ]")
 
         stdscr.refresh()
         # handle user inputs (quit)
@@ -200,10 +155,12 @@ class Main:
             key = stdscr.getkey()
         except:
             key = None
-        if key == "q":
+        if key == 'q' or key == 'Q':
             raise ExitException
-        elif key == 'c':
+        elif key == 'c' or key == 'C':
             self.monitor.clear_errors()
+        elif key == 'm' or key == 'M':
+            self.silent = not self.silent
 
 
 if __name__ == '__main__':
