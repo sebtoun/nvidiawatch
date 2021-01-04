@@ -162,6 +162,7 @@ class SearchBasedHttpScanner(HttpScanner):
 
     def __init__(self, name: str, search_terms: str, **kwargs):
         self._keywords, self._blacklist = parse_search_terms(search_terms)
+        self._item_count = 0
         super().__init__(name, **kwargs)
 
     def _get_all_items_in_page(self, content: Content) -> List[Item]:
@@ -223,6 +224,7 @@ class StockMonitor:
         self._scanners = scanners
         self._update_results: Union[Iterable[Future], None] = None
         self._last_update_time = None
+        self._update_requested = False
 
         # update thread
         self.pool = ThreadPoolExecutor(min(max_thread, len(scanners)))
@@ -235,20 +237,24 @@ class StockMonitor:
 
         self._last_update_time = datetime.now()
         self._update_results = [self.pool.submit(update_scanner, scanner) for scanner in self._scanners]
+        self._update_requested = False
 
     def _update_loop(self):
         self._update_scanners()
         while not self.stop_update:
             update_pending = any(map(lambda f: not f.done(), self._update_results))
             delay_elapsed = (datetime.now() - self._last_update_time).total_seconds() >= self._update_freq
-            if update_pending or not delay_elapsed:
-                time.sleep(0.5)
-            else:
+            if not update_pending and (delay_elapsed or self._update_requested):
                 self._update_scanners()
+            else:
+                time.sleep(0.5)
 
     def clear_errors(self):
         for scanner in self._scanners:
             scanner.clear_last_error()
+
+    def update_now(self):
+        self._update_requested = True
 
     def start(self):
         assert self._update_thread is None, "Thread already running"

@@ -163,14 +163,10 @@ class Main:
                 stdscr.addstr(y, x, scanner.last_stock_time.strftime(time_format), color)
             x += columns[3][1] + padding[0]
 
-            try:
-                detail = f"{scanner.watched_item_count} items watched"
-            except:
-                detail = None
             if scanner.last_error is not None:
                 stdscr.addstr(y, x, f"{scanner.last_error}", color)
-            elif detail is not None:
-                stdscr.addstr(y, x, detail, color)
+            elif scanner.watched_item_count is not None:
+                stdscr.addstr(y, x, f"{scanner.watched_item_count} items watched")
 
             stdscr.addstr(y + 1, padding[0],
                           f"\tCheck ")
@@ -178,7 +174,7 @@ class Main:
 
             y += 2
 
-        stdscr.addstr(y, padding[0], f"[ 'Q'uit | 'C'lear errors | ")
+        stdscr.addstr(y, padding[0], f"[ 'Q'uit | 'C'lear errors | 'U'pdate now | ")
         mute_cmd = "Un'm'ute" if self.silent else "'M'ute"
         stdscr.addstr(mute_cmd, curses.A_STANDOUT if self.silent else 0)
         stdscr.addstr(" ]")
@@ -189,13 +185,16 @@ class Main:
         try:
             key = stdscr.getkey()
         except:
-            key = None
-        if key == 'q' or key == 'Q':
-            raise ExitException
-        elif key == 'c' or key == 'C':
-            self.monitor.clear_errors()
-        elif key == 'm' or key == 'M':
-            self.toggle_mute()
+            pass
+        else:
+            if key == 'q' or key == 'Q':
+                raise ExitException
+            elif key == 'c' or key == 'C':
+                self.monitor.clear_errors()
+            elif key == 'm' or key == 'M':
+                self.toggle_mute()
+            elif key == 'u' or key == 'U':
+                self.monitor.update_now()
 
 
 if __name__ == '__main__':
