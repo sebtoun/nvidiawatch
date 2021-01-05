@@ -27,9 +27,10 @@ class ExitException(Exception):
 class Main:
     MAX_FAIL = 5
 
-    def __init__(self, monitor: StockMonitor, silent=False):
+    def __init__(self, monitor: StockMonitor, silent=False, silent_error=True):
         self.monitor = monitor
         self.silent = silent
+        self.silent_error = silent_error
 
         # notifications
         self._notification_process: Optional[Process] = None
@@ -90,7 +91,7 @@ class Main:
         if not self.silent:
             if self._notification_state == Scanner.InStock:
                 self._play_loop("data/whohoo.mp3")
-            elif self._notification_state == Scanner.Error:
+            elif not self.silent_error and self._notification_state == Scanner.Error:
                 self._play_loop("data/nooo.mp3")
 
     def _notify_state(self, state: str):
@@ -197,40 +198,44 @@ class Main:
                 self.monitor.update_now()
 
 
-if __name__ == '__main__':
+def main(update_freq=30, silent=False, max_threads=8, foreign=True, nvidia=True,
+         pattern="evga 3080", timeout=None, silent_error=True):
+    """
+    Monitor vendor sites.
+    """
     try:
-        UPDATE_FREQ = 30
-        SILENT = False
-        MAX_THREADS = 8
-
-        Scanner.DefaultTimeout = UPDATE_FREQ
+        Scanner.DefaultTimeout = timeout or update_freq
         fe_scanners = [
             NvidiaScanner("3080"),
             NvidiaScanner("3090")
-        ]
+        ] if nvidia else []
         gen_scanners = [
-            ScannerClass("evga 3080") for ScannerClass in [
+            ScannerClass(pattern) for ScannerClass in [
                 HardwareFrScanner,
                 LDLCScanner,
                 TopAchatScanner,
                 RueDuCommerceScanner,
                 MaterielNetScanner,
-                CaseKingScanner,
-                AlternateScanner,
             ]
         ]
+        foreign_scanners = [
+            ScannerClass(pattern) for ScannerClass in [
+                CaseKingScanner,
+                # AlternateScanner,
+            ]
+        ] if foreign else []
         dummy_scanners = [
             DummyScanner(delay=1, error=1, stocks=100),
             # DummyScanner(delay=1, error=10, stocks=2),
             # DummyScanner(delay=1, error=2, stocks=2),
         ]
 
-        scanners = fe_scanners + gen_scanners
+        scanners = fe_scanners + gen_scanners + foreign_scanners
         # scanners = dummy_scanners
 
-        def main(stdscr):
-            monitor = StockMonitor(scanners, update_freq=UPDATE_FREQ, max_thread=MAX_THREADS)
-            app = Main(monitor, silent=SILENT)
+        def main_loop(stdscr):
+            monitor = StockMonitor(scanners, update_freq=update_freq, max_thread=max_threads)
+            app = Main(monitor, silent=silent, silent_error=silent_error)
             try:
                 monitor.start()
                 while True:
@@ -241,10 +246,14 @@ if __name__ == '__main__':
             finally:
                 monitor.terminate()
 
-
-        curses.wrapper(main)
+        curses.wrapper(main_loop)
         print("exiting...")
 
     except Exception as ex:
         print(f"Unexpected ! {ex}")
         traceback.print_exc()
+
+
+if __name__ == '__main__':
+    import fire
+    fire.Fire()

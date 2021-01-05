@@ -58,7 +58,7 @@ class Scanner:
     def get_details(self) -> List[Tuple[str, str, bool]]:
         raise Exception("Not Implemented")
 
-    def update(self) -> None:
+    def update(self) -> str:
         try:
             if self._scan():
                 self._last_state = Scanner.InStock
@@ -70,6 +70,7 @@ class Scanner:
             self._last_error = exc
             self._consecutive_errors += 1
         self._last_scan_time = self._last_scan_time_per_state[self._last_state] = datetime.now()
+        return self._last_state
 
     @property
     def user_url(self) -> str:

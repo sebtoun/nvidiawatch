@@ -12,7 +12,7 @@ class AlternateScanner(SearchBasedHttpScanner):
 
     @property
     def target_url(self) -> str:
-        return f"https://www.alternate.de/html/search.html?query={quote('+'.join(self._keywords))}"
+        return f"https://www.alternate.de/html/search.html?query={quote(' '.join(self._keywords))}"
 
     def _get_all_items_in_page(self, bs: BeautifulSoup) -> List[Tag]:
         return bs.select(".listingContainer .listRow")
