@@ -206,13 +206,12 @@ class SearchBasedHttpScanner(HttpScanner):
 
         items = self._filter_result(content)
         self._item_count = len(items)
-        assert self._item_count > 0, "No valid item found"
 
         return self._check_stocks(items, content)
 
     @property
     def watched_item_count(self) -> int:
-        return self._item_count or None
+        return self._item_count
 
     @property
     def name(self) -> str:

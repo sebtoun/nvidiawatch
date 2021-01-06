@@ -6,13 +6,14 @@ from bs4.element import Tag
 
 
 class AlternateScanner(SearchBasedHttpScanner):
-    def __init__(self, search_terms: str, **kwargs):
-        name = "Alternate"
+    def __init__(self, search_terms: str, locale="fr", **kwargs):
+        self._locale = locale.lower()
+        name = "Alternate" + locale.upper()
         super().__init__(name, search_terms, **kwargs)
 
     @property
     def target_url(self) -> str:
-        return f"https://www.alternate.de/html/search.html?query={quote(' '.join(self._keywords))}"
+        return f"https://www.alternate.{self._locale}/html/search.html?query={quote(' '.join(self._keywords))}"
 
     def _get_all_items_in_page(self, bs: BeautifulSoup) -> List[Tag]:
         return bs.select(".listingContainer .listRow")

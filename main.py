@@ -11,7 +11,6 @@ import time
 import curses
 import logging
 
-
 logging.basicConfig(filename='output.log', filemode='w')
 
 
@@ -22,6 +21,14 @@ def loop(file):
 
 class ExitException(Exception):
     pass
+
+
+def plural_str(noun: str, count: int, plural_mark='s'):
+    if not count:
+        return f"no {noun}"
+    if count == 1:
+        return f"1 {noun}"
+    return f"{count} {noun}{plural_mark}"
 
 
 class Main:
@@ -167,7 +174,8 @@ class Main:
             if scanner.last_error is not None:
                 stdscr.addstr(y, x, f"{scanner.last_error}", color)
             elif scanner.watched_item_count is not None:
-                stdscr.addstr(y, x, f"{scanner.watched_item_count} items watched")
+                stdscr.addstr(y, x,
+                              f"{plural_str('item', scanner.watched_item_count)} watched")
 
             stdscr.addstr(y + 1, padding[0],
                           f"\tCheck ")
@@ -216,14 +224,13 @@ def main(update_freq=30, silent=False, max_threads=8, foreign=True, nvidia=True,
                 TopAchatScanner,
                 RueDuCommerceScanner,
                 MaterielNetScanner,
+                AlternateScanner,
             ]
-        ]
+        ] if pattern else []
         foreign_scanners = [
-            ScannerClass(pattern) for ScannerClass in [
-                CaseKingScanner,
-                # AlternateScanner,
-            ]
-        ] if foreign else []
+            CaseKingScanner(pattern),
+            AlternateScanner(pattern, locale="de"),
+        ] if foreign and pattern else []
         dummy_scanners = [
             DummyScanner(delay=1, error=1, stocks=100),
             # DummyScanner(delay=1, error=10, stocks=2),
@@ -231,6 +238,7 @@ def main(update_freq=30, silent=False, max_threads=8, foreign=True, nvidia=True,
         ]
 
         scanners = fe_scanners + gen_scanners + foreign_scanners
+
         # scanners = dummy_scanners
 
         def main_loop(stdscr):
@@ -256,4 +264,5 @@ def main(update_freq=30, silent=False, max_threads=8, foreign=True, nvidia=True,
 
 if __name__ == '__main__':
     import fire
+
     fire.Fire()
