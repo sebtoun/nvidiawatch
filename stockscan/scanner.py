@@ -30,6 +30,8 @@ def parse_search_terms(search_terms: str) -> Tuple[List[str], List[str]]:
 
 
 class Scanner:
+    Item = Tuple[str, float, bool]
+
     DefaultTimeout = 3
 
     InStock = "in_stock"
@@ -48,19 +50,21 @@ class Scanner:
         self._consecutive_errors = 0
         self._name = name
 
-    def _scan(self) -> bool:
+    def _scan(self) -> None:
+        raise Exception("Not Implemented")
+
+    @property
+    def items(self) -> List[Item]:
         raise Exception("Not Implemented")
 
     @property
     def watched_item_count(self) -> int:
-        raise Exception("Not Implemented")
-
-    def get_details(self) -> List[Tuple[str, str, bool]]:
-        raise Exception("Not Implemented")
+        return len(self.items)
 
     def update(self) -> str:
         try:
-            if self._scan():
+            self._scan()
+            if any(stock for _, _, stock in self.items):
                 self._last_state = Scanner.InStock
             else:
                 self._last_state = Scanner.Unavailable
@@ -121,27 +125,57 @@ class Scanner:
 
 
 class HttpScanner(Scanner):
+    PageEntry = Union[dict, Tag]
+    Page = Union[dict, BeautifulSoup]
+
     def __init__(self, name: str, method='GET', **kwargs):
         super().__init__(name)
         self.method = method
         self.time_out = kwargs.get("time_out", Scanner.DefaultTimeout)
+        self._items = []
 
     @property
     def target_url(self) -> str:
         raise Exception("Not Implemented")
 
     @property
+    def items(self) -> List[Scanner.Item]:
+        return self._items
+
+    def _get_all_items_in_page(self, content: Page) -> PageEntry:
+        raise Exception("Not Implemented")
+
+    def _get_item_title(self, item: PageEntry, content: Page) -> str:
+        raise Exception("Not Implemented")
+
+    def _is_item_in_stock(self, item: PageEntry, content: Page) -> bool:
+        raise Exception("Not Implemented")
+
+    def _get_item_price(self, item: PageEntry, content: Page) -> float:
+        raise Exception("Not Implemented")
+
+    def filter_item(self, item: Scanner.Item) -> bool:
+        return True
+
+    @property
     def payload(self) -> Union[str, dict]:
         return ''
 
-    def _scan_response(self, resp: requests.Response) -> bool:
-        raise Exception("Not Implemented")
+    def _get_item(self, entry: PageEntry, page: Page) -> Scanner.Item:
+        item = (self._get_item_title(entry, page),
+                self._get_item_price(entry, page),
+                self._is_item_in_stock(entry, page))
+        return item
+
+    def _scan_response(self, content: Page) -> None:
+        entries = self._get_all_items_in_page(content)
+        self._items = [item for item in (self._get_item(entry, content) for entry in entries) if self.filter_item(item)]
 
     @property
     def request_headers(self) -> dict:
         return {'user-agent': USER_AGENT}
 
-    def _scan(self) -> bool:
+    def _scan(self) -> None:
         if self.method == 'GET':
             request_method = requests.get
         elif self.method == 'POST':
@@ -150,7 +184,12 @@ class HttpScanner(Scanner):
             raise ValueError(f"Unsupported method: {self.method}")
         resp = request_method(self.target_url, headers=self.request_headers, data=self.payload, timeout=self.time_out)
         resp.raise_for_status()
-        return self._scan_response(resp)
+        try:
+            content = resp.json()
+        except JSONDecodeError:
+            content = make_soup(resp)
+
+        self._scan_response(content)
 
     @property
     def user_url(self) -> str:
@@ -158,60 +197,19 @@ class HttpScanner(Scanner):
 
 
 class SearchBasedHttpScanner(HttpScanner):
-    Item = Union[dict, Tag]
-    Content = Union[dict, BeautifulSoup]
-
     def __init__(self, name: str, search_terms: str, **kwargs):
         self._keywords, self._blacklist = parse_search_terms(search_terms)
         self._item_count = 0
         super().__init__(name, **kwargs)
 
-    def _get_all_items_in_page(self, content: Content) -> List[Item]:
-        raise Exception("Not Implemented")
-
-    def _get_item_title(self, item: Item, content: Content) -> str:
-        raise Exception("Not Implemented")
-
-    def _is_item_in_stock(self, item: Item, content: Content) -> bool:
-        raise Exception("Not Implemented")
-
-    def _get_item_price(self, item: Item, content: Content) -> str:
-        raise Exception("Not Implemented")
-
-    def _check_stocks(self, items: List[Item], content: Content) -> bool:
-        def is_in_stock(item: SearchBasedHttpScanner.Item) -> bool:
-            return self._is_item_in_stock(item, content)
-
-        return any(map(is_in_stock, items))
-
-    def _filter_result(self, content: Content) -> List[Item]:
-        def is_wanted(item: SearchBasedHttpScanner.Item) -> bool:
-            title = self._get_item_title(item, content)
-            assert bool(title), "Item title not found"
-            return self.is_title_valid(title)
-
-        return list(filter(is_wanted, self._get_all_items_in_page(content)))
+    def filter_item(self, item: Scanner.Item) -> bool:
+        return self.is_title_valid(item[0])
 
     def is_title_valid(self, item_title: str) -> bool:
         keywords = self._keywords
         blacklist = self._blacklist
         text = item_title.lower()
         return all(k in text for k in keywords) and not any(k in text for k in blacklist)
-
-    def _scan_response(self, resp: requests.Response) -> bool:
-        try:
-            content = resp.json()
-        except JSONDecodeError:
-            content = make_soup(resp)
-
-        items = self._filter_result(content)
-        self._item_count = len(items)
-
-        return self._check_stocks(items, content)
-
-    @property
-    def watched_item_count(self) -> int:
-        return self._item_count
 
     @property
     def name(self) -> str:

@@ -26,18 +26,16 @@ class MaterielNetScanner(SearchBasedHttpScanner):
         assert len(title) == 1, "Multiple item title found or no title found"
         return title[0].get_text()
 
-    def _is_item_in_stock(self, item: str, bs: BeautifulSoup) -> bool:
-        match = re.search(r"o-availability__value--stock_([0-9])", item)
-        assert match, "Failed to match string looking for stock"
-        return int(match[1]) <= 2
+    def _scan_response(self, content: BeautifulSoup) -> None:
+        # self._items = [item for item in
+        #                (self._get_item(entry, content) for entry in entries) if
+        #                self.filter_item(item)]
 
-    def _check_stocks(self, items: List[SearchBasedHttpScanner.Item], content: SearchBasedHttpScanner.Content) -> bool:
-        stock_query_url = "https://www.materiel.net/product-listing/stock-price/"
-
-        def get_item_id(item: Tag):
+        def get_entry_id(item: Tag):
             return item.select_one("[data-offer-id]").attrs["data-offer-id"]
 
-        query_offers = [{"offerId": get_item_id(item), "marketplace": False} for item in items]
+        entries = {get_entry_id(entry): entry for entry in self._get_all_items_in_page(content)}
+        query_offers = [{"offerId": entry_id, "marketplace": False} for entry_id in entries.keys()]
         stock_query_payload = {
             "json": json.dumps({
                 "currencyISOCode3": "EUR",
@@ -48,11 +46,21 @@ class MaterielNetScanner(SearchBasedHttpScanner):
         }
         headers = dict(self.request_headers)
         headers.update({'x-requested-with': 'XMLHttpRequest'})
+        stock_query_url = "https://www.materiel.net/product-listing/stock-price/"
         resp = requests.post(stock_query_url, data=stock_query_payload, headers=headers)
         resp.raise_for_status()
-        item_stocks = list(resp.json()["stock"].values())
+        content_json = resp.json()
+        item_stocks = content_json["stock"]
+        item_prices = content_json["price"]
+
+        def get_price(item: str) -> float:
+            return float(BeautifulSoup(item, "html.parser").get_text().strip().replace('€', '.').replace('\xa0', ''))
 
         def is_in_stock(item: str) -> bool:
-            return self._is_item_in_stock(item, content)
+            match = re.search(r"o-availability__value--stock_([0-9])", item)
+            assert match, "Failed to match string looking for stock"
+            return int(match[1]) <= 2
 
-        return any(map(is_in_stock, item_stocks))
+        self._items = [
+            (self._get_item_title(entry, content), get_price(item_prices[entry_id]), is_in_stock(item_stocks[entry_id]))
+            for entry_id, entry in entries.items()]

@@ -18,17 +18,27 @@ class HardwareFrScanner(SearchBasedHttpScanner):
         return f"https://shop.hardware.fr/search/+ftxt-{quote('-'.join(self._keywords))}/"
 
     def _get_all_items_in_page(self, bs: BeautifulSoup) -> List[Tag]:
-        return bs.select("li[data-ref]") or bs.select("div#infosProduit")
+        return bs.select(".list li[data-ref]") or bs.select("div#infosProduit")
 
     def _get_item_title(self, item: Tag, bs: BeautifulSoup) -> str:
         title = item.select(".description h2,#description h1")
         assert len(title) == 1, "Item title not found"
         return title[0].get_text()
 
-    def _get_item_price(self, item: Tag, bs: BeautifulSoup) -> str:
-        price = item.select_one(".prix")
-        assert price, "Item price not found"
-        return price.get_text().strip()
+    def _get_item_price(self, item: Tag, bs: BeautifulSoup) -> float:
+        item_id = item.attrs["id"]
+        if item_id == "infosProduit":  # single element page
+            metadata = bs.find("script", attrs={'type': 'application/ld+json'})
+            assert metadata, "Could not find price"
+            metadata_json = json.loads(metadata.string)
+            assert self.is_title_valid(metadata_json["name"]), "Wrong item metadata"
+            return metadata_json["offers"]["price"]
+        else:  # multiple results page
+            script_data = ''.join(s.string for s in bs.find_all("script", attrs={"src": None}))
+            price_html = re.search(
+                "#{id}\s+\.price-wrapper.*?replaceWith\('<span class=\"prix\">(.*?)</span>'\)".format(id=item_id),
+                script_data)[1]
+            return float(BeautifulSoup(price_html, "html.parser").get_text().strip().replace('€', '.'))
 
     def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
         item_id = item.attrs["id"]
@@ -41,5 +51,5 @@ class HardwareFrScanner(SearchBasedHttpScanner):
                 'http://schema.org/InStock', 'http://schema.org/OnlineOnly', 'http://schema.org/LimitedAvailability']
         else:  # multiple results page
             script_data = ''.join(s.string for s in bs.find_all("script", attrs={"src": None}))
-            stock_type = int(re.search("#{id}.*?stock-wrapper.*?stock-([0-9])".format(id=item_id), script_data)[1])
+            stock_type = int(re.search("#{id}\s+\.stock-wrapper.*?stock-([0-9])".format(id=item_id), script_data)[1])
             return stock_type <= 2

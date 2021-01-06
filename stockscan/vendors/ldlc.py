@@ -22,8 +22,8 @@ class LDLCScanner(SearchBasedHttpScanner):
         assert title, "Item title not found"
         return title.get_text()
 
-    def _get_item_price(self, item: Tag, bs: BeautifulSoup) -> str:
-        return item.select_one(".price").get_text()
+    def _get_item_price(self, item: Tag, bs: BeautifulSoup) -> float:
+        return float(item.select_one(".price").get_text().strip().replace('€', '.').replace('\xa0', ''))
 
     def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
         return len(item.select(".stock-web .stock-1,.stock-web .stock-2")) > 0

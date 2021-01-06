@@ -176,6 +176,7 @@ class Main:
             elif scanner.watched_item_count is not None:
                 stdscr.addstr(y, x,
                               f"{plural_str('item', scanner.watched_item_count)} watched")
+                stdscr.addstr(f" @ [{' '.join(str(price) for _, price, _ in scanner.items)}]")
 
             stdscr.addstr(y + 1, padding[0],
                           f"\tCheck ")
@@ -206,7 +207,7 @@ class Main:
                 self.monitor.update_now()
 
 
-def main(update_freq=30, silent=False, max_threads=8, foreign=True, nvidia=True,
+def main(update_freq=20, silent=False, max_threads=8, foreign=True, nvidia=True,
          pattern="evga 3080", timeout=None, silent_error=True):
     """
     Monitor vendor sites.
@@ -215,7 +216,7 @@ def main(update_freq=30, silent=False, max_threads=8, foreign=True, nvidia=True,
         Scanner.DefaultTimeout = timeout or update_freq
         fe_scanners = [
             NvidiaScanner("3080"),
-            NvidiaScanner("3090")
+            # NvidiaScanner("3090")
         ] if nvidia else []
         gen_scanners = [
             ScannerClass(pattern) for ScannerClass in [
@@ -264,5 +265,4 @@ def main(update_freq=30, silent=False, max_threads=8, foreign=True, nvidia=True,
 
 if __name__ == '__main__':
     import fire
-
-    fire.Fire()
+    fire.Fire(main)

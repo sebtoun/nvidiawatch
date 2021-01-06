@@ -28,7 +28,7 @@ class TopAchatScanner(SearchBasedHttpScanner):
         return title[0].get_text()
 
     def _get_item_price(self, item: Tag, bs: BeautifulSoup) -> str:
-        return item.select_one(".prod_px_euro,.priceFinal.fp44").get_text()
+        return float(item.select_one(".prod_px_euro,.priceFinal.fp44").get_text().replace('€', '').strip())
 
     def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
         return item.find(class_="en-stock") is not None

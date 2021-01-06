@@ -20,7 +20,7 @@ class RueDuCommerceScanner(SearchBasedHttpScanner):
         return f"{item['fournisseur_nom']} - {item['produit_nom_nom']}"
 
     def _get_item_price(self, item: dict, json: dict) -> str:
-        return item["produit_prix_ttc"]
+        return str(item["produit_prix_ttc"])
 
     def _is_item_in_stock(self, item: dict, json: dict) -> bool:
         assert item["shop_name"] == "Rue du Commerce", f"Wrong shop name: {item['shop_name']}"
