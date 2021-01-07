@@ -174,9 +174,22 @@ class Main:
             if scanner.last_error is not None:
                 stdscr.addstr(y, x, f"{scanner.last_error}", color)
             elif scanner.watched_item_count is not None:
+                if scanner.in_stock:
+                    filter_pred = lambda it: it[2]
+                    text = "in stock"
+                else:
+                    filter_pred = None
+                    text = "watched"
+
+                prices = sorted([price for _, price, _ in filter(filter_pred, scanner.items)])
                 stdscr.addstr(y, x,
-                              f"{plural_str('item', scanner.watched_item_count)} watched")
-                stdscr.addstr(f" @ [{' '.join(str(price) for _, price, _ in scanner.items)}]")
+                              f"{plural_str('item', len(prices))} {text}")
+                if len(prices) > 0:
+                    if len(prices) > 1:
+                        price_text = f"[{prices[0]} ~ {prices[-1]}]"
+                    else:
+                        price_text = f"{prices[0]}"
+                    stdscr.addstr(f" @ {price_text}")
 
             stdscr.addstr(y + 1, padding[0],
                           f"\tCheck ")
@@ -214,32 +227,27 @@ def main(update_freq=20, silent=False, max_threads=8, foreign=True, nvidia=True,
     """
     try:
         Scanner.DefaultTimeout = timeout or update_freq
-        fe_scanners = [
-            NvidiaScanner("3080"),
-            # NvidiaScanner("3090")
-        ] if nvidia else []
-        gen_scanners = [
-            ScannerClass(pattern) for ScannerClass in [
-                HardwareFrScanner,
-                LDLCScanner,
-                TopAchatScanner,
-                RueDuCommerceScanner,
-                MaterielNetScanner,
-                AlternateScanner,
-            ]
-        ] if pattern else []
-        foreign_scanners = [
-            CaseKingScanner(pattern),
-            AlternateScanner(pattern, locale="de"),
-        ] if foreign and pattern else []
+        scanners = []
+        custom_ldlc_url = "https://www.ldlc.com/nouveautes/+fcat-4684+fdi-1+fv1026-5801+fv121-19183,19185.html"
+        if nvidia:
+            scanners.append(NvidiaScanner("3080"))
+            scanners.append(NvidiaScanner("3090"))
+            scanners.append(LDLCScanner("", custom_url=custom_ldlc_url))
+
+        if pattern:
+            for ScannerClass in [HardwareFrScanner, LDLCScanner, TopAchatScanner, RueDuCommerceScanner,
+                                 MaterielNetScanner, AlternateScanner]:
+                scanners.append(ScannerClass(pattern))
+
+            if foreign:
+                scanners.append(CaseKingScanner(pattern))
+                scanners.append(AlternateScanner(pattern, locale="de"))
+
         dummy_scanners = [
             DummyScanner(delay=1, error=1, stocks=100),
             # DummyScanner(delay=1, error=10, stocks=2),
             # DummyScanner(delay=1, error=2, stocks=2),
         ]
-
-        scanners = fe_scanners + gen_scanners + foreign_scanners
-
         # scanners = dummy_scanners
 
         def main_loop(stdscr):
@@ -265,4 +273,5 @@ def main(update_freq=20, silent=False, max_threads=8, foreign=True, nvidia=True,
 
 if __name__ == '__main__':
     import fire
+
     fire.Fire(main)

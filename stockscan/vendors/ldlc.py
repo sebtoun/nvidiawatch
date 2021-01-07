@@ -1,18 +1,19 @@
 from stockscan.scanner import SearchBasedHttpScanner
-from typing import List
+from typing import List, Optional
 from urllib.parse import quote
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 
 
 class LDLCScanner(SearchBasedHttpScanner):
-    def __init__(self, search_terms: str, **kwargs):
+    def __init__(self, search_terms: str, custom_url: Optional[str] = None, **kwargs):
         name = "LDLC"
+        self.custom_url = custom_url
         super().__init__(name, search_terms, **kwargs)
 
     @property
     def target_url(self) -> str:
-        return f"https://www.ldlc.com/recherche/{quote('+'.join(self._keywords))}/"
+        return self.custom_url or f"https://www.ldlc.com/recherche/{quote('+'.join(self._keywords))}/"
 
     def _get_all_items_in_page(self, bs: BeautifulSoup) -> List[Tag]:
         return bs.select(".listing-product .pdt-item") or bs.select(".product-bloc")

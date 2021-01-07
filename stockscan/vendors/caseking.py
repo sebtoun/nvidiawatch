@@ -20,8 +20,11 @@ class CaseKingScanner(SearchBasedHttpScanner):
     def _get_item_title(self, item: Tag, bs: BeautifulSoup) -> str:
         return item.find(class_="producttitles").attrs["data-description"]
 
-    def _get_item_price(self, item: Tag, bs: BeautifulSoup) -> str:
-        return item.select_one(".price").get_text().strip()
+    def _get_item_price(self, item: Tag, bs: BeautifulSoup) -> float:
+        def parse_price(text: str) -> float:
+            return float(text.replace('€', '').replace(',', '').replace('*', ''))
+
+        return parse_price(item.select_one(".price").get_text().strip())
 
     def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
         return item.find(class_="deliverable1") is not None
