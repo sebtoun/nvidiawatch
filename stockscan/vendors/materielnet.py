@@ -27,10 +27,6 @@ class MaterielNetScanner(SearchBasedHttpScanner):
         return title[0].get_text()
 
     def _scan_response(self, content: BeautifulSoup) -> None:
-        # self._items = [item for item in
-        #                (self._get_item(entry, content) for entry in entries) if
-        #                self.filter_item(item)]
-
         def get_entry_id(item: Tag):
             return item.select_one("[data-offer-id]").attrs["data-offer-id"]
 
