@@ -11,7 +11,8 @@ import time
 import curses
 import logging
 
-logging.basicConfig(filename='output.log', filemode='w')
+logging.basicConfig(filename='output.log', filemode='w', level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 def loop(file):
@@ -72,7 +73,7 @@ class Main:
         }
 
     def _play_loop(self, file):
-        logging.debug("create notification process")
+        logger.debug("create notification process")
         self._notification_process = Process(target=loop,
                                              args=(file,))
         self._notification_process.daemon = True
@@ -80,13 +81,13 @@ class Main:
 
     def _stop_sound(self):
         if self._notification_process is not None:
-            logging.debug("killing notification process")
+            logger.debug("killing notification process")
             self._notification_process.terminate()
             while self._notification_process.is_alive():
                 time.sleep(0.1)
             self._notification_process.close()
             self._notification_process = None
-            logging.debug("notification process killed")
+            logger.debug("notification process killed")
 
     @property
     def _is_playing_sound(self):
@@ -105,7 +106,7 @@ class Main:
         if self._notification_state is state:
             return
         self._notification_state = state
-        logging.info(f"notification state going to: {state}")
+        logger.info(f"notification state going to: {state}")
         self._play_sound_for_state()
 
     def _notifications(self):
@@ -131,10 +132,10 @@ class Main:
         stdscr.addstr(y, x, text, *args, **kwargs)
 
     @staticmethod
-    def get_state(result: ScanResult, error_count: int) -> str:
+    def get_state(result: ScanResult) -> str:
         if result.is_in_stock:
             return Main.InStock
-        elif error_count >= Main.MAX_FAIL:
+        elif result.is_error:
             return Main.Error
         else:
             return Main.Unavailable
@@ -156,7 +157,7 @@ class Main:
         for scanner, (result, last_stock_time, error_count) in zip(self.monitor.scanners, self.monitor.last_results):
             x = padding[0]
 
-            state = Main.get_state(result, error_count)
+            state = Main.get_state(result)
             color = int(self.layout["state_colors"][state])
             stdscr.addstr(y, x, scanner.name, color)
             x += columns[0][1] + padding[0]
@@ -180,7 +181,7 @@ class Main:
             x += columns[3][1] + padding[0]
 
             if result.is_error:
-                stdscr.addstr(y, x, f"{result.error}", color)
+                stdscr.addstr(y, x, f"{type(result.error).__name__}: {result.error}", color)
             elif result.items is not None:
                 if result.is_in_stock:
                     filter_pred = lambda it: it[2]
