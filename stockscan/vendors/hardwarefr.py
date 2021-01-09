@@ -32,7 +32,7 @@ class HardwareFrScanner(SearchBasedHttpScanner):
             assert metadata, "Could not find price"
             metadata_json = json.loads(metadata.string)
             assert self.is_title_valid(metadata_json["name"]), "Wrong item metadata"
-            return metadata_json["offers"]["price"]
+            return float(metadata_json["offers"]["price"])
         else:  # multiple results page
             script_data = ''.join(s.string for s in bs.find_all("script", attrs={"src": None}))
             price_html = re.search(

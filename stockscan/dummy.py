@@ -26,3 +26,7 @@ class DummyScanner(Scanner):
         if isinstance(outcome, DummyException):
             raise outcome
         return [Item(title="Dummy item", price=99.99, in_stock=outcome)]
+
+    @property
+    def name(self) -> str:
+        return f"{super().name}[delay={self._delay} weights={self._weights}]"

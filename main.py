@@ -260,7 +260,7 @@ def main(update_freq=30, silent=False, max_threads=8, foreign=True, nvidia=True,
             DummyScanner(delay=1, error=1, stocks=1),
         ]
 
-        scanners = dummy_scanners
+        # scanners = dummy_scanners
 
         def main_loop_nogui():
             monitor = StockMonitor(scanners, update_freq=update_freq, max_thread=max_threads)

@@ -27,7 +27,7 @@ class TopAchatScanner(SearchBasedHttpScanner):
         assert title, "Item title not found"
         return title[0].get_text()
 
-    def _get_item_price(self, item: Tag, bs: BeautifulSoup) -> str:
+    def _get_item_price(self, item: Tag, bs: BeautifulSoup) -> float:
         return float(item.select_one(".prod_px_euro,.priceFinal.fp44").get_text().replace('€', '').strip())
 
     def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
