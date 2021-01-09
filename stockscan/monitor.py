@@ -18,7 +18,6 @@ class StockMonitor:
         self._update_freq = update_freq
         self._scanners = scanners
         self._last_update_time = None
-        self._update_requested = False
 
         # scan results
         now = datetime.now()
@@ -36,7 +35,6 @@ class StockMonitor:
 
     async def _update_scanners(self):
         logger.info("updating scanners")
-        self._update_requested = False
         tasks = await asyncio.gather(*(scanner.scan() for scanner in self._scanners))
         logger.info("gathered %d results", len(tasks))
         for i, (previous, result) in enumerate(zip(self._last_results, tasks)):
@@ -57,20 +55,21 @@ class StockMonitor:
                 return await task
         return next(iter(done)).result()
 
+    async def update_round(self):
+        # trigger new update
+        self._last_update_time = datetime.now()
+        await self._update_scanners()
+        # wait remaining time
+        delay_elapsed = (datetime.now() - self._last_update_time).total_seconds()
+        if delay_elapsed < self._update_freq:
+            await asyncio.sleep(self._update_freq - delay_elapsed)
+
     async def update_loop(self):
         while not self.stop_update:
-            # trigger new update
-            self._last_update_time = datetime.now()
             try:
-                await self.cancelable(self._update_scanners())
+                await self.cancelable(self.update_round())
             except asyncio.CancelledError:
-                pass
-            delay_elapsed = (datetime.now() - self._last_update_time).total_seconds()
-            if delay_elapsed < self._update_freq and not self._update_requested:
-                try:
-                    await self.cancelable(asyncio.sleep(self._update_freq - delay_elapsed))
-                except asyncio.CancelledError:
-                    self._cancel_event.clear()
+                self._cancel_event.clear()
 
     def interrupt(self) -> None:
         def cancel():
@@ -79,19 +78,19 @@ class StockMonitor:
         self._loop.call_soon_threadsafe(cancel)
 
     def update_now(self) -> None:
-        self._update_requested = True
         self.interrupt()
-
-    def _run_update_loop(self, loop):
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(self.update_loop())
 
     def start(self) -> None:
         self.stop_update = False
         self._loop = asyncio.new_event_loop()
         # self._loop.set_debug(True)
         self._cancel_event = asyncio.Event(loop=self._loop)
-        self._update_thread = Thread(target=self._run_update_loop, args=(self._loop,), daemon=True)
+
+        def _run_update_loop(loop):
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.update_loop())
+
+        self._update_thread = Thread(target=_run_update_loop, args=(self._loop,), daemon=True)
         self._update_thread.start()
 
     def terminate(self) -> None:
