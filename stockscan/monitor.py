@@ -34,10 +34,12 @@ class StockMonitor:
         self._cancel_event = None
 
     async def _update_scanners(self):
-        logger.info("updating scanners")
-        tasks = await asyncio.gather(*(scanner.scan() for scanner in self._scanners))
-        logger.info("gathered %d results", len(tasks))
-        for i, (previous, result) in enumerate(zip(self._last_results, tasks)):
+        async def result_with_index(i):
+            res = await self._scanners[i].scan()
+            return i, res
+
+        for task in asyncio.as_completed([result_with_index(i) for i in range(len(self._scanners))]):
+            i, result = await task
             if result.is_error:
                 self._consecutive_errors[i] += 1
             else:
