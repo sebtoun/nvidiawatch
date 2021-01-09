@@ -2,7 +2,7 @@ from datetime import datetime
 from playsound import playsound
 from multiprocessing import Process
 from typing import Optional
-from stockscan import Scanner, DummyScanner, StockMonitor
+from stockscan import Scanner, DummyScanner, StockMonitor, ScanResult, Item
 from stockscan.vendors import HardwareFrScanner, LDLCScanner, NvidiaScanner, TopAchatScanner, RueDuCommerceScanner, \
     MaterielNetScanner, CaseKingScanner, AlternateScanner
 
@@ -34,6 +34,12 @@ def plural_str(noun: str, count: int, plural_mark='s'):
 class Main:
     MAX_FAIL = 5
 
+    InStock = "In Stock"
+    Unavailable = "Unavailable"
+    Error = "Error"
+
+    States = [InStock, Unavailable, Error]
+
     def __init__(self, monitor: StockMonitor, silent=False, silent_error=True):
         self.monitor = monitor
         self.silent = silent
@@ -41,7 +47,7 @@ class Main:
 
         # notifications
         self._notification_process: Optional[Process] = None
-        self._notification_state: str = Scanner.Unavailable
+        self._notification_state: str = Main.Unavailable
 
         # init layout
         curses.use_default_colors()
@@ -49,24 +55,18 @@ class Main:
         curses.init_pair(2, curses.COLOR_GREEN, -1)
         curses.init_pair(3, curses.COLOR_BLUE, -1)
 
-        state_names = {
-            Scanner.InStock: "In Stock",
-            Scanner.Unavailable: "Unavailable",
-            Scanner.Error: "Error"
-        }
         time_format = "%x-%X"
         self.layout = {
             "padding": (3, 1),
             "columns": (("Name", max(map(lambda s: len(s.name), self.monitor.scanners))),
-                        ("State", max(map(lambda s: len(s), state_names.values()))),
+                        ("State", max(map(lambda s: len(s), Main.States))),
                         ("Last Scan", max(len("Last Scan"), len("99s ago"))),
                         ("Last Stock", len(datetime.now().strftime(time_format))),
                         ("Details", -1)),
-            "state_names": state_names,
             "state_colors": {
-                Scanner.InStock: curses.color_pair(2),
-                Scanner.Unavailable: 0,
-                Scanner.Error: curses.color_pair(1)
+                Main.InStock: curses.color_pair(2),
+                Main.Unavailable: 0,
+                Main.Error: curses.color_pair(1)
             },
             "time_format": time_format
         }
@@ -96,9 +96,9 @@ class Main:
         if self._is_playing_sound:
             self._stop_sound()
         if not self.silent:
-            if self._notification_state == Scanner.InStock:
+            if self._notification_state == Main.InStock:
                 self._play_loop("data/whohoo.mp3")
-            elif not self.silent_error and self._notification_state == Scanner.Error:
+            elif not self.silent_error and self._notification_state == Main.Error:
                 self._play_loop("data/nooo.mp3")
 
     def _notify_state(self, state: str):
@@ -109,12 +109,12 @@ class Main:
         self._play_sound_for_state()
 
     def _notifications(self):
-        if any(s.in_stock for s in self.monitor.scanners):
-            self._notify_state(Scanner.InStock)
-        elif any(s.consecutive_errors >= Main.MAX_FAIL for s in self.monitor.scanners):
-            self._notify_state(Scanner.Error)
+        if any(result[0].is_in_stock for result in self.monitor.last_results):
+            self._notify_state(Main.InStock)
+        elif any(result[2] >= Main.MAX_FAIL for result in self.monitor.last_results):
+            self._notify_state(Main.Error)
         else:
-            self._notify_state(Scanner.Unavailable)
+            self._notify_state(Main.Unavailable)
 
     def toggle_mute(self):
         self.silent = not self.silent
@@ -130,6 +130,15 @@ class Main:
         x = (cols - len(text)) // 2
         stdscr.addstr(y, x, text, *args, **kwargs)
 
+    @staticmethod
+    def get_state(result: ScanResult, error_count: int) -> str:
+        if result.is_in_stock:
+            return Main.InStock
+        elif error_count >= Main.MAX_FAIL:
+            return Main.Error
+        else:
+            return Main.Unavailable
+
     def draw(self, stdscr):
         self._notifications()
         stdscr.clear()
@@ -144,44 +153,43 @@ class Main:
             x += column[1] + padding[0]
 
         y += 1
-        for i, scanner in enumerate(self.monitor.scanners):
+        for scanner, (result, last_stock_time, error_count) in zip(self.monitor.scanners, self.monitor.last_results):
             x = padding[0]
 
-            state = scanner.last_sate
+            state = Main.get_state(result, error_count)
             color = int(self.layout["state_colors"][state])
             stdscr.addstr(y, x, scanner.name, color)
             x += columns[0][1] + padding[0]
 
-            state_name = self.layout["state_names"][state]
-            if scanner.has_error:
-                state_name += f" #{'>' if scanner.consecutive_errors > 9 else ''}{min(9, scanner.consecutive_errors)}"
-            state_attr = 0 if state is Scanner.Unavailable else curses.A_STANDOUT
+            state_name = state
+            if result.is_error:
+                state_name += f" #{'>' if error_count > 9 else ''}{min(9, error_count)}"
+            state_attr = 0 if state is Main.Unavailable else curses.A_STANDOUT
             stdscr.addstr(y, x,
                           state_name,
                           color | state_attr)
             x += columns[1][1] + padding[0]
 
-            if scanner.last_scan_time is not None:
-                elapsed = datetime.now() - scanner.last_scan_time
-                stdscr.addstr(y, x, f"{int(elapsed.total_seconds()):>2}s ago", color)
+            elapsed = datetime.now() - result.timestamp
+            stdscr.addstr(y, x, f"{int(elapsed.total_seconds()):>2}s ago", color)
             x += columns[2][1] + padding[0]
 
             time_format = self.layout["time_format"]
-            if scanner.last_stock_time is not None:
-                stdscr.addstr(y, x, scanner.last_stock_time.strftime(time_format), color)
+            if last_stock_time is not None:
+                stdscr.addstr(y, x, last_stock_time.strftime(time_format), color)
             x += columns[3][1] + padding[0]
 
-            if scanner.last_error is not None:
-                stdscr.addstr(y, x, f"{scanner.last_error}", color)
-            elif scanner.watched_item_count is not None:
-                if scanner.in_stock:
+            if result.is_error:
+                stdscr.addstr(y, x, f"{result.error}", color)
+            elif result.items is not None:
+                if result.is_in_stock:
                     filter_pred = lambda it: it[2]
                     text = "in stock"
                 else:
                     filter_pred = None
                     text = "watched"
 
-                prices = sorted([price for _, price, _ in filter(filter_pred, scanner.items)])
+                prices = sorted([item.price for item in filter(filter_pred, result.items)])
                 stdscr.addstr(y, x,
                               f"{plural_str('item', len(prices))} {text}")
                 if len(prices) > 0:
@@ -197,7 +205,7 @@ class Main:
 
             y += 2
 
-        stdscr.addstr(y, padding[0], f"[ 'Q'uit | 'C'lear errors | 'U'pdate now | ")
+        stdscr.addstr(y, padding[0], f"[ 'Q'uit | 'U'pdate now | ")
         mute_cmd = "Un'm'ute" if self.silent else "'M'ute"
         stdscr.addstr(mute_cmd, curses.A_STANDOUT if self.silent else 0)
         stdscr.addstr(" ]")
@@ -212,8 +220,6 @@ class Main:
         else:
             if key == 'q' or key == 'Q':
                 raise ExitException
-            elif key == 'c' or key == 'C':
-                self.monitor.clear_errors()
             elif key == 'm' or key == 'M':
                 self.toggle_mute()
             elif key == 'u' or key == 'U':
@@ -221,33 +227,33 @@ class Main:
 
 
 def main(update_freq=20, silent=False, max_threads=8, foreign=True, nvidia=True,
-         pattern="evga 3080", timeout=None, silent_error=True):
+         pattern="evga 3080", silent_error=True, **kwargs):
     """
     Monitor vendor sites.
     """
     try:
-        Scanner.DefaultTimeout = timeout or update_freq
         scanners = []
         custom_ldlc_url = "https://www.ldlc.com/nouveautes/+fcat-4684+fdi-1+fv1026-5801+fv121-19183,19185.html"
         if nvidia:
-            scanners.append(NvidiaScanner("3080"))
-            scanners.append(NvidiaScanner("3090"))
-            scanners.append(LDLCScanner("", custom_url=custom_ldlc_url))
+            scanners.append(NvidiaScanner("3080", **kwargs))
+            scanners.append(NvidiaScanner("3090", **kwargs))
+            scanners.append(LDLCScanner("", custom_url=custom_ldlc_url, **kwargs))
 
         if pattern:
             for ScannerClass in [HardwareFrScanner, LDLCScanner, TopAchatScanner, RueDuCommerceScanner,
                                  MaterielNetScanner, AlternateScanner]:
-                scanners.append(ScannerClass(pattern))
+                scanners.append(ScannerClass(pattern, **kwargs))
 
             if foreign:
-                scanners.append(CaseKingScanner(pattern))
-                scanners.append(AlternateScanner(pattern, locale="de"))
+                scanners.append(CaseKingScanner(pattern, **kwargs))
+                scanners.append(AlternateScanner(pattern, locale="de", **kwargs))
 
         dummy_scanners = [
             DummyScanner(delay=1, error=1, stocks=100),
             # DummyScanner(delay=1, error=10, stocks=2),
             # DummyScanner(delay=1, error=2, stocks=2),
         ]
+
         # scanners = dummy_scanners
 
         def main_loop(stdscr):

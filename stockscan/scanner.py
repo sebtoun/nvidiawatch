@@ -1,9 +1,10 @@
-from typing import Dict, Union, List, Tuple, Iterable
+from typing import Optional, Union, List, Tuple, Iterable
 from datetime import datetime
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 from json.decoder import JSONDecodeError
 from concurrent.futures import ThreadPoolExecutor, Future
+from dataclasses import dataclass
 
 import requests
 import threading
@@ -29,52 +30,39 @@ def parse_search_terms(search_terms: str) -> Tuple[List[str], List[str]]:
     return keywords, blacklist
 
 
+@dataclass
+class Item:
+    title: str
+    price: float
+    in_stock: bool
+
+
+@dataclass
+class ScanResult:
+    timestamp: datetime = None
+    error: Optional[Exception] = None
+    items: Optional[List[Item]] = None
+
+
 class Scanner:
-    Item = Tuple[str, float, bool]
-
-    DefaultTimeout = 3
-
-    InStock = "in_stock"
-    Unavailable = "unavailable"
-    Error = "error"
-
     def __init__(self, name: str):
-        self._last_state = Scanner.Unavailable
-        self._last_scan_time_per_state: Dict[str, Union[datetime, None]] = {
-            Scanner.InStock: None,
-            Scanner.Unavailable: None,
-            Scanner.Error: None
-        }
-        self._last_scan_time = None
-        self._last_error = None
-        self._consecutive_errors = 0
         self._name = name
 
-    def _scan(self) -> None:
+    def _scan(self) -> List[Item]:
         raise Exception("Not Implemented")
 
-    @property
-    def items(self) -> List[Item]:
-        raise Exception("Not Implemented")
-
-    @property
-    def watched_item_count(self) -> int:
-        return len(self.items)
-
-    def update(self) -> str:
+    def scan(self) -> ScanResult:
         try:
-            self._scan()
-            if any(stock for _, _, stock in self.items):
-                self._last_state = Scanner.InStock
-            else:
-                self._last_state = Scanner.Unavailable
-            self._consecutive_errors = 0
-        except Exception as exc:
-            self._last_state = Scanner.Error
-            self._last_error = exc
-            self._consecutive_errors += 1
-        self._last_scan_time = self._last_scan_time_per_state[self._last_state] = datetime.now()
-        return self._last_state
+            items = self._scan()
+        except Exception as err:
+            items = None
+            error = err
+        else:
+            error = None
+        timestamp = datetime.now()
+        return ScanResult(timestamp=timestamp,
+                          items=items,
+                          error=error)
 
     @property
     def user_url(self) -> str:
@@ -84,63 +72,19 @@ class Scanner:
     def name(self) -> str:
         return self._name
 
-    @property
-    def last_stock_time(self) -> datetime:
-        return self._last_scan_time_per_state[Scanner.InStock]
-
-    @property
-    def last_error_time(self) -> datetime:
-        return self._last_scan_time_per_state[Scanner.Error]
-
-    @property
-    def last_unavailable_time(self) -> datetime:
-        return self._last_scan_time_per_state[Scanner.Unavailable]
-
-    @property
-    def last_scan_time(self) -> datetime:
-        return self._last_scan_time
-
-    @property
-    def in_stock(self) -> bool:
-        return self._last_state is Scanner.InStock
-
-    @property
-    def consecutive_errors(self) -> int:
-        return self._consecutive_errors
-
-    @property
-    def has_error(self) -> bool:
-        return self._last_state is Scanner.Error
-
-    @property
-    def last_error(self) -> Exception:
-        return self._last_error
-
-    @property
-    def last_sate(self) -> str:
-        return self._last_state
-
-    def clear_last_error(self) -> None:
-        self._last_error = None
-
 
 class HttpScanner(Scanner):
     PageEntry = Union[dict, Tag]
     Page = Union[dict, BeautifulSoup]
 
-    def __init__(self, name: str, method='GET', **kwargs):
+    def __init__(self, name: str, method='GET', time_out=5):
         super().__init__(name)
         self.method = method
-        self.time_out = kwargs.get("time_out", Scanner.DefaultTimeout)
-        self._items = []
+        self.time_out = time_out
 
     @property
     def target_url(self) -> str:
         raise Exception("Not Implemented")
-
-    @property
-    def items(self) -> List[Scanner.Item]:
-        return self._items
 
     def _get_all_items_in_page(self, content: Page) -> PageEntry:
         raise Exception("Not Implemented")
@@ -154,28 +98,28 @@ class HttpScanner(Scanner):
     def _get_item_price(self, item: PageEntry, content: Page) -> float:
         raise Exception("Not Implemented")
 
-    def filter_item(self, item: Scanner.Item) -> bool:
+    def filter_item(self, item: Item) -> bool:
         return True
 
     @property
     def payload(self) -> Union[str, dict]:
         return ''
 
-    def _get_item(self, entry: PageEntry, page: Page) -> Scanner.Item:
-        item = (self._get_item_title(entry, page),
-                self._get_item_price(entry, page),
-                self._is_item_in_stock(entry, page))
+    def _get_item(self, entry: PageEntry, page: Page) -> Item:
+        item = Item(title=self._get_item_title(entry, page),
+                    price=self._get_item_price(entry, page),
+                    in_stock=self._is_item_in_stock(entry, page))
         return item
 
-    def _scan_response(self, content: Page) -> None:
+    def _scan_response(self, content: Page) -> List[Item]:
         entries = self._get_all_items_in_page(content)
-        self._items = [item for item in (self._get_item(entry, content) for entry in entries) if self.filter_item(item)]
+        return [item for item in (self._get_item(entry, content) for entry in entries) if self.filter_item(item)]
 
     @property
     def request_headers(self) -> dict:
         return {'user-agent': USER_AGENT}
 
-    def _scan(self) -> None:
+    def _scan(self) -> List[Item]:
         if self.method == 'GET':
             request_method = requests.get
         elif self.method == 'POST':
@@ -189,7 +133,7 @@ class HttpScanner(Scanner):
         except JSONDecodeError:
             content = make_soup(resp)
 
-        self._scan_response(content)
+        return self._scan_response(content)
 
     @property
     def user_url(self) -> str:
@@ -202,8 +146,8 @@ class SearchBasedHttpScanner(HttpScanner):
         self._item_count = 0
         super().__init__(name, **kwargs)
 
-    def filter_item(self, item: Scanner.Item) -> bool:
-        return self.is_title_valid(item[0])
+    def filter_item(self, item: Item) -> bool:
+        return self.is_title_valid(item.title)
 
     def is_title_valid(self, item_title: str) -> bool:
         keywords = self._keywords
@@ -216,13 +160,36 @@ class SearchBasedHttpScanner(HttpScanner):
         return f"{super().name}[{'+'.join(self._keywords)}]"
 
 
+@dataclass
+class ScanResult:
+    timestamp: datetime = None
+    error: Optional[Exception] = None
+    items: Optional[List[Item]] = None
+
+    @property
+    def is_error(self) -> bool:
+        return self.error is not None
+
+    @property
+    def is_in_stock(self) -> bool:
+        return self.items and any(item.in_stock for item in self.items)
+
+
 class StockMonitor:
-    def __init__(self, scanners: List[Scanner], update_freq=10, max_thread=8):
+    ScanTask = Future
+
+    def __init__(self, scanners: List[Scanner], update_freq=30, max_thread=8):
         self._update_freq = update_freq
         self._scanners = scanners
-        self._update_results: Union[Iterable[Future], None] = None
+        self._scan_tasks: Optional[List[Optional[StockMonitor.ScanTask]]] = None
         self._last_update_time = None
         self._update_requested = False
+
+        # scan results
+        now = datetime.now()
+        self._last_results: List[ScanResult] = [ScanResult(now)] * len(scanners)
+        self._last_stock_time: List[Optional[datetime]] = [None] * len(scanners)
+        self._consecutive_errors: List[int] = [0] * len(scanners)
 
         # update thread
         self.pool = ThreadPoolExecutor(min(max_thread, len(scanners)))
@@ -231,45 +198,60 @@ class StockMonitor:
 
     def _update_scanners(self):
         def update_scanner(scanner: Scanner):
-            scanner.update()
+            return scanner.scan()
 
         self._last_update_time = datetime.now()
-        self._update_results = [self.pool.submit(update_scanner, scanner) for scanner in self._scanners]
+        self._scan_tasks = [self.pool.submit(update_scanner, scanner) for scanner in self._scanners]
         self._update_requested = False
 
     def _update_loop(self):
         self._update_scanners()
         while not self.stop_update:
-            update_pending = any(map(lambda f: not f.done(), self._update_results))
+            # check pending updates
+            update_pending = any(map(lambda f: f and f.done(), self._scan_tasks))
+            if update_pending:
+                for i, (previous, task) in enumerate(zip(self._last_results, self._scan_tasks)):
+                    if task and task.done():
+                        result: ScanResult = task.result()
+                        if result.is_error:
+                            self._consecutive_errors[i] += 1
+                        else:
+                            self._consecutive_errors[i] = 0
+                        if result.is_in_stock:
+                            self._last_stock_time[i] = result.timestamp
+                        self._scan_tasks[i] = None
+                        self._last_results[i] = result
+            # trigger new update
+            update_finished = not any(self._scan_tasks)
             delay_elapsed = (datetime.now() - self._last_update_time).total_seconds() >= self._update_freq
-            if not update_pending and (delay_elapsed or self._update_requested):
+            if update_finished and (delay_elapsed or self._update_requested):
                 self._update_scanners()
             else:
                 time.sleep(0.5)
 
-    def clear_errors(self):
-        for scanner in self._scanners:
-            scanner.clear_last_error()
-
-    def update_now(self):
+    def update_now(self) -> None:
         self._update_requested = True
 
-    def start(self):
+    def start(self) -> None:
         assert self._update_thread is None, "Thread already running"
         self.stop_update = False
         self._update_thread = threading.Thread(target=self._update_loop)
         self._update_thread.start()
 
-    def terminate(self):
+    def terminate(self) -> None:
         if self._update_thread is not None:
             self.stop_update = True
             self._update_thread.join()
         self.pool.shutdown(wait=False)
-        if self._update_results is not None:
-            for f in self._update_results:
+        if self._scan_tasks is not None:
+            for f in self._scan_tasks:
                 if not f.done():
                     f.cancel()
 
     @property
-    def scanners(self):
+    def last_results(self) -> Iterable[Tuple[ScanResult, Optional[datetime], int]]:
+        return zip(self._last_results, self._last_stock_time, self._consecutive_errors)
+
+    @property
+    def scanners(self) -> List[Scanner]:
         return self._scanners

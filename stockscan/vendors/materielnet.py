@@ -1,4 +1,4 @@
-from stockscan.scanner import SearchBasedHttpScanner
+from stockscan.scanner import SearchBasedHttpScanner, Item
 from typing import List
 from bs4 import BeautifulSoup
 from bs4.element import Tag
@@ -26,7 +26,7 @@ class MaterielNetScanner(SearchBasedHttpScanner):
         assert len(title) == 1, "Multiple item title found or no title found"
         return title[0].get_text()
 
-    def _scan_response(self, content: BeautifulSoup) -> None:
+    def _scan_response(self, content: BeautifulSoup) -> List[Item]:
         def get_entry_id(item: Tag):
             return item.select_one("[data-offer-id]").attrs["data-offer-id"]
 
@@ -57,6 +57,7 @@ class MaterielNetScanner(SearchBasedHttpScanner):
             assert match, "Failed to match string looking for stock"
             return int(match[1]) <= 2
 
-        self._items = [
-            (self._get_item_title(entry, content), get_price(item_prices[entry_id]), is_in_stock(item_stocks[entry_id]))
-            for entry_id, entry in entries.items()]
+        return [Item(title=self._get_item_title(entry, content),
+                     price=get_price(item_prices[entry_id]),
+                     in_stock=is_in_stock(item_stocks[entry_id]))
+                for entry_id, entry in entries.items()]

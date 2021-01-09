@@ -1,4 +1,4 @@
-from .scanner import Scanner, StockMonitor
+from .scanner import Scanner, StockMonitor, ScanResult, Item
 from .dummy import DummyScanner
 
-__all__ = [Scanner, DummyScanner, StockMonitor]
+__all__ = [Scanner, DummyScanner, StockMonitor, ScanResult, Item]
