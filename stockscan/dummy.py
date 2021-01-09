@@ -1,6 +1,7 @@
-from .scanner import Scanner
-import time
+from typing import List
+from .scanner import Scanner, Item
 import random
+import asyncio
 
 
 class DummyException(RuntimeError):
@@ -18,10 +19,10 @@ class DummyScanner(Scanner):
     def user_url(self) -> str:
         return "http://www.dummy.com/"
 
-    def _scan(self) -> bool:
+    async def _scan(self) -> List[Item]:
         if self._delay > 0:
-            time.sleep(self._delay)
+            await asyncio.sleep(self._delay)
         outcome = random.choices([True, False, DummyException()], self._weights)[0]
         if isinstance(outcome, DummyException):
             raise outcome
-        return outcome
+        return [Item(title="Dummy item", price=99.99, in_stock=outcome)]

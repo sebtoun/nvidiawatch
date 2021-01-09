@@ -184,7 +184,7 @@ class Main:
                 stdscr.addstr(y, x, f"{type(result.error).__name__}: {result.error}", color)
             elif result.items is not None:
                 if result.is_in_stock:
-                    filter_pred = lambda it: it[2]
+                    filter_pred = lambda it: it.in_stock
                     text = "in stock"
                 else:
                     filter_pred = None
@@ -256,13 +256,11 @@ def main(update_freq=30, silent=False, max_threads=8, foreign=True, nvidia=True,
                 scanners.append(AlternateScanner(pattern, locale="de", **kwargs))
 
         dummy_scanners = [
-            LDLCScanner(pattern)
-            # DummyScanner(delay=1, error=1, stocks=100),
-            # DummyScanner(delay=1, error=10, stocks=2),
-            # DummyScanner(delay=1, error=2, stocks=2),
+            DummyScanner(delay=10, error=1, stocks=1),
+            DummyScanner(delay=1, error=1, stocks=1),
         ]
 
-        # scanners = dummy_scanners
+        scanners = dummy_scanners
 
         def main_loop_nogui():
             monitor = StockMonitor(scanners, update_freq=update_freq, max_thread=max_threads)
