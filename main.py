@@ -41,7 +41,7 @@ class Main:
 
     States = [InStock, Unavailable, Error]
 
-    def __init__(self, monitor: StockMonitor, silent=False, silent_error=True):
+    def __init__(self, monitor: StockMonitor, silent=False, silent_error=True, stdscr=None):
         self.monitor = monitor
         self.silent = silent
         self.silent_error = silent_error
@@ -71,6 +71,10 @@ class Main:
             },
             "time_format": time_format
         }
+        height = self.layout["padding"][1] + 1 + 2 * len(monitor.scanners) + 1
+        width = stdscr.getmaxyx()[1]
+        self.pad = curses.newpad(height, width)
+        self.stdscr = stdscr
 
     def _play_loop(self, file):
         logger.debug("create notification process")
@@ -140,7 +144,8 @@ class Main:
         else:
             return Main.Unavailable
 
-    def draw(self, stdscr):
+    def draw(self):
+        stdscr = self.pad
         self._notifications()
         stdscr.clear()
         curses.curs_set(False)
@@ -211,13 +216,16 @@ class Main:
         stdscr.addstr(mute_cmd, curses.A_STANDOUT if self.silent else 0)
         stdscr.addstr(" ]")
 
-        stdscr.refresh()
+        pad_dims = stdscr.getmaxyx()
+        screen_dims = self.stdscr.getmaxyx()
+        stdscr.refresh(0, 0, 0, 0, min(pad_dims[0], screen_dims[0]) - 1, min(pad_dims[1], screen_dims[1]) - 1)
+        self.stdscr.refresh()
 
-    def input_poll(self, stdscr):
+    def input_poll(self):
         # handle user inputs (quit)
-        stdscr.nodelay(True)
+        self.stdscr.nodelay(True)
         try:
-            key = stdscr.getkey()
+            key = self.stdscr.getkey()
         except:
             pass
         else:
@@ -256,11 +264,11 @@ def main(update_freq=30, silent=False, max_threads=8, foreign=True, nvidia=True,
                 scanners.append(AlternateScanner(pattern, locale="de", **kwargs))
 
         dummy_scanners = [
-            DummyScanner(delay=10, error=1, stocks=1),
+            DummyScanner(delay=1, error=1, stocks=1),
             DummyScanner(delay=1, error=1, stocks=1),
         ]
 
-        # scanners = dummy_scanners
+        scanners = dummy_scanners
 
         def main_loop_nogui():
             monitor = StockMonitor(scanners, update_freq=update_freq, max_thread=max_threads)
@@ -273,13 +281,13 @@ def main(update_freq=30, silent=False, max_threads=8, foreign=True, nvidia=True,
 
         def main_loop(stdscr):
             monitor = StockMonitor(scanners, update_freq=update_freq, max_thread=max_threads)
-            app = Main(monitor, silent=silent, silent_error=silent_error)
+            app = Main(monitor, silent=silent, silent_error=silent_error, stdscr=stdscr)
             try:
                 monitor.start()
                 logger.info("monitor started")
                 while True:
-                    app.draw(stdscr)
-                    app.input_poll(stdscr)
+                    app.draw()
+                    app.input_poll()
                     time.sleep(1.0 / 10)
             except ExitException:
                 pass

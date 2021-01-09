@@ -6,7 +6,7 @@ import asyncio
 
 class DummyException(RuntimeError):
     def __init__(self):
-        super().__init__("Dummy exception")
+        super().__init__("Dummy exception veryyyy long" * 5)
 
 
 class DummyScanner(Scanner):
