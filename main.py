@@ -212,6 +212,8 @@ class Main:
         stdscr.addstr(" ]")
 
         stdscr.refresh()
+
+    def input_poll(self, stdscr):
         # handle user inputs (quit)
         stdscr.nodelay(True)
         try:
@@ -228,7 +230,7 @@ class Main:
 
 
 def main(update_freq=30, silent=False, max_threads=8, foreign=True, nvidia=True,
-         pattern="evga 3080", silent_error=True, **kwargs):
+         pattern="evga 3080", silent_error=True, gui=True, **kwargs):
     """
     Monitor vendor sites.
     """
@@ -241,8 +243,12 @@ def main(update_freq=30, silent=False, max_threads=8, foreign=True, nvidia=True,
             scanners.append(LDLCScanner("", custom_url=custom_ldlc_url, **kwargs))
 
         if pattern:
-            for ScannerClass in [HardwareFrScanner, LDLCScanner, TopAchatScanner, RueDuCommerceScanner,
-                                 MaterielNetScanner, AlternateScanner]:
+            for ScannerClass in [HardwareFrScanner,
+                                 LDLCScanner,
+                                 TopAchatScanner,
+                                 RueDuCommerceScanner,
+                                 MaterielNetScanner,
+                                 AlternateScanner]:
                 scanners.append(ScannerClass(pattern, **kwargs))
 
             if foreign:
@@ -250,27 +256,44 @@ def main(update_freq=30, silent=False, max_threads=8, foreign=True, nvidia=True,
                 scanners.append(AlternateScanner(pattern, locale="de", **kwargs))
 
         dummy_scanners = [
-            DummyScanner(delay=1, error=1, stocks=100),
+            LDLCScanner(pattern)
+            # DummyScanner(delay=1, error=1, stocks=100),
             # DummyScanner(delay=1, error=10, stocks=2),
             # DummyScanner(delay=1, error=2, stocks=2),
         ]
 
         # scanners = dummy_scanners
 
+        def main_loop_nogui():
+            monitor = StockMonitor(scanners, update_freq=update_freq, max_thread=max_threads)
+            try:
+                monitor.start()
+                while True:
+                    time.sleep(1.0 / 10)
+            finally:
+                monitor.terminate()
+
         def main_loop(stdscr):
             monitor = StockMonitor(scanners, update_freq=update_freq, max_thread=max_threads)
             app = Main(monitor, silent=silent, silent_error=silent_error)
             try:
                 monitor.start()
+                logger.info("monitor started")
                 while True:
                     app.draw(stdscr)
+                    app.input_poll(stdscr)
                     time.sleep(1.0 / 10)
             except ExitException:
                 pass
             finally:
+                logger.info("terminate monitor")
                 monitor.terminate()
 
-        curses.wrapper(main_loop)
+        if gui:
+            curses.wrapper(main_loop)
+        else:
+            main_loop_nogui()
+
         print("exiting...")
 
     except Exception as ex:

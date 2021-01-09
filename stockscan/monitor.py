@@ -1,23 +1,22 @@
-import threading
-import time
+import asyncio
+import logging
 
-from concurrent.futures import ProcessPoolExecutor, Future
 from typing import Optional, List, Tuple, Iterable
 from stockscan.scanner import Scanner, ScanResult
 from datetime import datetime
+from threading import Thread
+
+logger = logging.getLogger(__name__)
 
 
-def update_scanner(scanner):
-    return scanner.scan()
+async def update_scanner(scanner):
+    return await scanner.scan()
 
 
 class StockMonitor:
-    ScanTask = Future
-
     def __init__(self, scanners: List[Scanner], update_freq=30, max_thread=8):
         self._update_freq = update_freq
         self._scanners = scanners
-        self._scan_tasks: Optional[List[Optional[StockMonitor.ScanTask]]] = None
         self._last_update_time = None
         self._update_requested = False
 
@@ -28,58 +27,64 @@ class StockMonitor:
         self._consecutive_errors: List[int] = [0] * len(scanners)
 
         # update thread
-        self.pool = ProcessPoolExecutor(min(max_thread, len(scanners)))
-        self._update_thread = None
         self.stop_update = False
+        self._update_thread: Optional[Thread] = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._sleep_task: Optional[asyncio.Task] = None
 
-    def _update_scanners(self):
-        self._last_update_time = datetime.now()
-        self._scan_tasks = [self.pool.submit(update_scanner, scanner) for scanner in self._scanners]
+    async def _update_scanners(self):
+        logger.info("updating scanners")
         self._update_requested = False
-
-    def _update_loop(self):
-        self._update_scanners()
-        while not self.stop_update:
-            # check pending updates
-            update_pending = any(map(lambda f: f and f.done(), self._scan_tasks))
-            if update_pending:
-                for i, (previous, task) in enumerate(zip(self._last_results, self._scan_tasks)):
-                    if task and task.done():
-                        result: ScanResult = task.result()
-                        if result.is_error:
-                            self._consecutive_errors[i] += 1
-                        else:
-                            self._consecutive_errors[i] = 0
-                        if result.is_in_stock:
-                            self._last_stock_time[i] = result.timestamp
-                        self._scan_tasks[i] = None
-                        self._last_results[i] = result
-            # trigger new update
-            update_finished = not any(self._scan_tasks)
-            delay_elapsed = (datetime.now() - self._last_update_time).total_seconds() >= self._update_freq
-            if update_finished and (delay_elapsed or self._update_requested):
-                self._update_scanners()
+        tasks = await asyncio.gather(*(scanner.scan() for scanner in self._scanners))
+        logger.info("gathered %d results", len(tasks))
+        for i, (previous, result) in enumerate(zip(self._last_results, tasks)):
+            if result.is_error:
+                self._consecutive_errors[i] += 1
             else:
-                time.sleep(0.5)
+                self._consecutive_errors[i] = 0
+            if result.is_in_stock:
+                self._last_stock_time[i] = result.timestamp
+            self._last_results[i] = result
+
+    async def update_loop(self):
+        self.stop_update = False
+        while not self.stop_update:
+            # trigger new update
+            self._last_update_time = datetime.now()
+            await self._update_scanners()
+            delay_elapsed = (datetime.now() - self._last_update_time).total_seconds()
+            if delay_elapsed < self._update_freq and not self._update_requested:
+                try:
+                    self._sleep_task = asyncio.create_task(asyncio.sleep(self._update_freq - delay_elapsed))
+                    await self._sleep_task
+                except asyncio.CancelledError:
+                    pass
+
+    def interrupt_sleep(self) -> None:
+        def cancel_sleep():
+            if self._sleep_task:
+                self._sleep_task.cancel()
+
+        self._loop.call_soon_threadsafe(cancel_sleep)
 
     def update_now(self) -> None:
         self._update_requested = True
+        self.interrupt_sleep()
+
+    def _run_update_loop(self, loop):
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(self.update_loop())
 
     def start(self) -> None:
-        assert self._update_thread is None, "Thread already running"
-        self.stop_update = False
-        self._update_thread = threading.Thread(target=self._update_loop)
+        self._loop = asyncio.new_event_loop()
+        # self._loop.set_debug(True)
+        self._update_thread = Thread(target=self._run_update_loop, args=(self._loop,), daemon=True)
         self._update_thread.start()
 
     def terminate(self) -> None:
-        if self._update_thread is not None:
-            self.stop_update = True
-            self._update_thread.join()
-        if self._scan_tasks is not None:
-            for f in self._scan_tasks:
-                if f and not f.done():
-                    f.cancel()
-        self.pool.shutdown(wait=True)
+        self.stop_update = True
+        self.interrupt_sleep()
+        self._update_thread.join()
 
     @property
     def last_results(self) -> Iterable[Tuple[ScanResult, Optional[datetime], int]]:

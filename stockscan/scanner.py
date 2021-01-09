@@ -4,15 +4,16 @@ from bs4 import BeautifulSoup
 from bs4.element import Tag
 from json.decoder import JSONDecodeError
 from dataclasses import dataclass
+from aiohttp import ClientTimeout, ContentTypeError
 
-import requests
+import aiohttp
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 " \
              "Safari/537.36 "
 
 
-def make_soup(resp: requests.Response):
-    return BeautifulSoup(resp.content, 'html.parser')
+def make_soup(content):
+    return BeautifulSoup(content, 'html.parser')
 
 
 def parse_search_terms(search_terms: str) -> Tuple[List[str], List[str]]:
@@ -53,12 +54,12 @@ class Scanner:
     def __init__(self, name: str):
         self._name = name
 
-    def _scan(self) -> List[Item]:
+    async def _scan(self) -> List[Item]:
         raise Exception("Not Implemented")
 
-    def scan(self) -> ScanResult:
+    async def scan(self) -> ScanResult:
         try:
-            items = self._scan()
+            items = await self._scan()
         except Exception as err:
             items = None
             error = err
@@ -124,21 +125,24 @@ class HttpScanner(Scanner):
     def request_headers(self) -> dict:
         return {'user-agent': USER_AGENT}
 
-    def _scan(self) -> List[Item]:
-        if self.method == 'GET':
-            request_method = requests.get
-        elif self.method == 'POST':
-            request_method = requests.post
-        else:
+    async def _scan(self):
+        if self.method not in ['GET', 'POST']:
             raise ValueError(f"Unsupported method: {self.method}")
-        resp = request_method(self.target_url, headers=self.request_headers, data=self.payload, timeout=self.time_out)
-        resp.raise_for_status()
-        try:
-            content = resp.json()
-        except JSONDecodeError:
-            content = make_soup(resp)
 
-        return self._scan_response(content)
+        async with aiohttp.ClientSession(headers=self.request_headers,
+                                         raise_for_status=True,
+                                         timeout=ClientTimeout(total=self.time_out)) as session:
+            if self.method == 'GET':
+                request_method = session.get
+            elif self.method == 'POST':
+                request_method = session.post
+            async with request_method(self.target_url, data=self.payload) as resp:
+                try:
+                    content = await resp.json()
+                except (JSONDecodeError, ContentTypeError):
+                    text = await resp.text()
+                    content = make_soup(text)
+                return self._scan_response(content)
 
     @property
     def user_url(self) -> str:
