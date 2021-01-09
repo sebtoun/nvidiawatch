@@ -3,7 +3,7 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 from json.decoder import JSONDecodeError
-from concurrent.futures import ThreadPoolExecutor, Future
+from concurrent.futures import ProcessPoolExecutor, Future
 from dataclasses import dataclass
 
 import requests
@@ -175,6 +175,10 @@ class ScanResult:
         return self.items and any(item.in_stock for item in self.items)
 
 
+def update_scanner(scanner):
+    return scanner.scan()
+
+
 class StockMonitor:
     ScanTask = Future
 
@@ -192,14 +196,11 @@ class StockMonitor:
         self._consecutive_errors: List[int] = [0] * len(scanners)
 
         # update thread
-        self.pool = ThreadPoolExecutor(min(max_thread, len(scanners)))
+        self.pool = ProcessPoolExecutor(min(max_thread, len(scanners)))
         self._update_thread = None
         self.stop_update = False
 
     def _update_scanners(self):
-        def update_scanner(scanner: Scanner):
-            return scanner.scan()
-
         self._last_update_time = datetime.now()
         self._scan_tasks = [self.pool.submit(update_scanner, scanner) for scanner in self._scanners]
         self._update_requested = False
@@ -242,11 +243,11 @@ class StockMonitor:
         if self._update_thread is not None:
             self.stop_update = True
             self._update_thread.join()
-        self.pool.shutdown(wait=False)
         if self._scan_tasks is not None:
             for f in self._scan_tasks:
-                if not f.done():
+                if f and not f.done():
                     f.cancel()
+        self.pool.shutdown(wait=True)
 
     @property
     def last_results(self) -> Iterable[Tuple[ScanResult, Optional[datetime], int]]:

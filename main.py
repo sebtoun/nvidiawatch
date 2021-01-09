@@ -226,7 +226,7 @@ class Main:
                 self.monitor.update_now()
 
 
-def main(update_freq=20, silent=False, max_threads=8, foreign=True, nvidia=True,
+def main(update_freq=30, silent=False, max_threads=8, foreign=True, nvidia=True,
          pattern="evga 3080", silent_error=True, **kwargs):
     """
     Monitor vendor sites.
