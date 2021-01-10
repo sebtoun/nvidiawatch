@@ -14,7 +14,8 @@ from pprint import PrettyPrinter
 
 pp = PrettyPrinter(indent=2)
 
-logging.basicConfig(filename='output.log', filemode='w', level=logging.INFO)
+# logging.basicConfig(filename='output.log', filemode='w', level=logging.WARNING)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
@@ -278,8 +279,7 @@ def main(update_freq=30, silent=False, max_threads=8, foreign=True, nvidia=True,
             try:
                 monitor.start()
 
-                def print_scan(scanner: Scanner, result: ScanResult, last_stock_time: Optional[datetime],
-                               consecutive_errors: int):
+                def print_scan(scanner: Scanner, result: ScanResult, *args):
                     print(f"{result.timestamp.strftime('%Y/%m/%d %H:%M:%S')} - {scanner.name} - ", end='')
                     if result.is_in_stock:
                         print(f"IN STOCK - {scanner.user_url}")
