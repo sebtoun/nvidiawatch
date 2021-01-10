@@ -6,12 +6,14 @@ from .materielnet import MaterielNetScanner
 from .nvidia import NvidiaScanner
 from .rueducommerce import RueDuCommerceScanner
 from .topachat import TopAchatScanner
+from .grosbill import GrosBillScanner
 
-__all__ = [AlternateScanner,
-           CaseKingScanner,
-           HardwareFrScanner,
-           LDLCScanner,
-           MaterielNetScanner,
-           NvidiaScanner,
-           RueDuCommerceScanner,
-           TopAchatScanner]
+__all__ = ['AlternateScanner',
+           'CaseKingScanner',
+           'HardwareFrScanner',
+           'LDLCScanner',
+           'MaterielNetScanner',
+           'NvidiaScanner',
+           'RueDuCommerceScanner',
+           'TopAchatScanner',
+           'GrosBillScanner']

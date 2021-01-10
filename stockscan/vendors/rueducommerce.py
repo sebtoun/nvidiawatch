@@ -11,7 +11,7 @@ class RueDuCommerceScanner(SearchBasedHttpScanner):
     @property
     def target_url(self) -> str:
         return "https://www.rueducommerce.fr/listingDyn?" \
-               f"boutique_id=18&langue_id=1&recherche={quote('-'.join(self._keywords))}&from=0"
+               f"boutique_id=18&langue_id=1&recherche={quote('-'.join(self._keywords))}&gammesId=25476&from=0"
 
     def _get_all_items_in_page(self, json: dict) -> List[dict]:
         return json["produits"]

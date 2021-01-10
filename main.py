@@ -4,8 +4,7 @@ from multiprocessing import Process
 from typing import Optional
 from stockscan import DummyScanner, StockMonitor, ScanResult
 from functools import partial
-from stockscan.vendors import HardwareFrScanner, LDLCScanner, NvidiaScanner, TopAchatScanner, RueDuCommerceScanner, \
-    MaterielNetScanner, CaseKingScanner, AlternateScanner
+from stockscan.vendors import *
 
 import asyncio
 import time
@@ -264,7 +263,8 @@ class Main:
                                  TopAchatScanner,
                                  RueDuCommerceScanner,
                                  MaterielNetScanner,
-                                 AlternateScanner]:
+                                 AlternateScanner,
+                                 GrosBillScanner]:
                 scanners.append(ScannerClass(pattern, **kwargs))
 
             if foreign:
@@ -272,8 +272,9 @@ class Main:
                 scanners.append(AlternateScanner(pattern, locale="de", **kwargs))
 
         dummy_scanners = [
-            DummyScanner(delay=1, error=1, stocks=1),
-            DummyScanner(delay=1, error=1, stocks=1),
+            GrosBillScanner("rtx 3090")
+            # DummyScanner(delay=1, error=1, stocks=1),
+            # DummyScanner(delay=1, error=1, stocks=1),
         ]
 
         # scanners = dummy_scanners
@@ -285,13 +286,16 @@ class Main:
         if result.is_in_stock:
             print(f"IN STOCK - {scanner.user_url}")
         elif result.is_error:
-            print(f"ERROR - {type(result.error).__name__}")
+            print(f"ERROR - {type(result.error).__name__}:{result.error}")
         elif result.items is not None:
             print(f"UNAVAILABLE - watching {plural_str('item', len(result.items))}")
         else:
             print(f"PENDING")
 
     def scan(self):
+        """
+        Perform a single scan on all vendors.
+        """
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
         try:
             monitor = StockMonitor(self.scanners)
@@ -301,6 +305,12 @@ class Main:
             logger.debug("interrupted")
 
     def loop(self, update_freq=30):
+        """
+        Loop scan on all vendors at fixed interval.
+
+        Args:
+            update_freq (float): The interval at which scans are performed.
+        """
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
         try:
             monitor = StockMonitor(self.scanners, update_freq=update_freq)
@@ -310,6 +320,14 @@ class Main:
             logger.debug("interrupted")
 
     def gui(self, update_freq=30, silent=False, silent_error=True):
+        """
+        Loop scan on all vendors at fixed interval and display results in a curses GUI.
+
+        Args:
+            update_freq (float): The interval at which scans are performed.
+            silent (bool): play sound when stock state changes
+            silent_error (bool): play sound when scan results in an error
+        """
         curses.wrapper(partial(self._gui_loop, update_freq, silent, silent_error))
 
     def _gui_loop(self, update_freq, silent, silent_error, stdscr):
