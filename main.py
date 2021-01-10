@@ -2,12 +2,12 @@ from datetime import datetime
 from playsound import playsound
 from multiprocessing import Process
 from typing import Optional
-from stockscan import Scanner, DummyScanner, StockMonitor, ScanResult, Item
+from stockscan import DummyScanner, StockMonitor, ScanResult
+from functools import partial
 from stockscan.vendors import HardwareFrScanner, LDLCScanner, NvidiaScanner, TopAchatScanner, RueDuCommerceScanner, \
     MaterielNetScanner, CaseKingScanner, AlternateScanner
 
 import asyncio
-import traceback
 import time
 import curses
 import logging
@@ -37,7 +37,7 @@ def plural_str(noun: str, count: int, plural_mark='s'):
     return f"{count} {noun}{plural_mark}"
 
 
-class Main:
+class CursesGUI:
     MAX_FAIL = 5
 
     InStock = "In Stock"
@@ -53,7 +53,7 @@ class Main:
 
         # notifications
         self._notification_process: Optional[Process] = None
-        self._notification_state: str = Main.Unavailable
+        self._notification_state: str = CursesGUI.Unavailable
 
         # init layout
         curses.use_default_colors()
@@ -65,14 +65,14 @@ class Main:
         self.layout = {
             "padding": (3, 1),
             "columns": (("Name", max(map(lambda s: len(s.name), self.monitor.scanners))),
-                        ("State", max(map(lambda s: len(s), Main.States))),
+                        ("State", max(map(lambda s: len(s), CursesGUI.States))),
                         ("Last Scan", max(len("Last Scan"), len("99s ago"))),
                         ("Last Stock", len(datetime.now().strftime(time_format))),
                         ("Details", -1)),
             "state_colors": {
-                Main.InStock: curses.color_pair(2),
-                Main.Unavailable: 0,
-                Main.Error: curses.color_pair(1)
+                CursesGUI.InStock: curses.color_pair(2),
+                CursesGUI.Unavailable: 0,
+                CursesGUI.Error: curses.color_pair(1)
             },
             "time_format": time_format
         }
@@ -106,9 +106,9 @@ class Main:
         if self._is_playing_sound:
             self._stop_sound()
         if not self.silent:
-            if self._notification_state == Main.InStock:
+            if self._notification_state == CursesGUI.InStock:
                 self._play_loop("data/whohoo.mp3")
-            elif not self.silent_error and self._notification_state == Main.Error:
+            elif not self.silent_error and self._notification_state == CursesGUI.Error:
                 self._play_loop("data/nooo.mp3")
 
     def _notify_state(self, state: str):
@@ -120,11 +120,11 @@ class Main:
 
     def _notifications(self):
         if any(result[0].is_in_stock for result in self.monitor.last_results):
-            self._notify_state(Main.InStock)
-        elif any(result[2] >= Main.MAX_FAIL for result in self.monitor.last_results):
-            self._notify_state(Main.Error)
+            self._notify_state(CursesGUI.InStock)
+        elif any(result[2] >= CursesGUI.MAX_FAIL for result in self.monitor.last_results):
+            self._notify_state(CursesGUI.Error)
         else:
-            self._notify_state(Main.Unavailable)
+            self._notify_state(CursesGUI.Unavailable)
 
     def toggle_mute(self):
         self.silent = not self.silent
@@ -143,11 +143,11 @@ class Main:
     @staticmethod
     def get_state(result: ScanResult) -> str:
         if result.is_in_stock:
-            return Main.InStock
+            return CursesGUI.InStock
         elif result.is_error:
-            return Main.Error
+            return CursesGUI.Error
         else:
-            return Main.Unavailable
+            return CursesGUI.Unavailable
 
     def draw(self):
         stdscr = self.pad
@@ -167,7 +167,7 @@ class Main:
         for scanner, (result, last_stock_time, error_count) in zip(self.monitor.scanners, self.monitor.last_results):
             x = padding[0]
 
-            state = Main.get_state(result)
+            state = CursesGUI.get_state(result)
             color = int(self.layout["state_colors"][state])
             stdscr.addstr(y, x, scanner.name, color)
             x += columns[0][1] + padding[0]
@@ -175,7 +175,7 @@ class Main:
             state_name = state
             if result.is_error:
                 state_name += f" #{'>' if error_count > 9 else ''}{min(9, error_count)}"
-            state_attr = 0 if state is Main.Unavailable else curses.A_STANDOUT
+            state_attr = 0 if state is CursesGUI.Unavailable else curses.A_STANDOUT
             stdscr.addstr(y, x,
                           state_name,
                           color | state_attr)
@@ -242,12 +242,15 @@ class Main:
                 self.monitor.update_now()
 
 
-def main(update_freq=30, silent=False, max_threads=8, foreign=True, nvidia=True,
-         pattern="evga 3080", silent_error=True, gui=True, **kwargs):
+class Main:
     """
     Monitor vendor sites.
     """
-    try:
+    def __init__(self, foreign=True, nvidia=True,
+                 pattern="evga 3080", **kwargs):
+        self._setup_scanners(pattern, nvidia, foreign, **kwargs)
+
+    def _setup_scanners(self, pattern="evga 3080", nvidia=True, foreign=True, **kwargs):
         scanners = []
         custom_ldlc_url = "https://www.ldlc.com/nouveautes/+fcat-4684+fdi-1+fv1026-5801+fv121-19183,19185.html"
         if nvidia:
@@ -274,54 +277,59 @@ def main(update_freq=30, silent=False, max_threads=8, foreign=True, nvidia=True,
         ]
 
         # scanners = dummy_scanners
+        self.scanners = scanners
 
-        def main_loop_nogui():
-            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-            try:
-                def print_scan(scanner: Scanner, result: ScanResult, *args):
-                    print(f"{result.timestamp.strftime('%Y/%m/%d %H:%M:%S')} - {scanner.name} - ", end='')
-                    if result.is_in_stock:
-                        print(f"IN STOCK - {scanner.user_url}")
-                    elif result.is_error:
-                        print(f"ERROR - {type(result.error).__name__}")
-                    elif result.items is not None:
-                        print(f"UNAVAILABLE - watching {plural_str('item', len(result.items))}")
-                    else:
-                        print(f"PENDING")
-
-                monitor = StockMonitor(scanners, update_freq=update_freq, max_thread=max_threads)
-                monitor.register_to_scan(print_scan)
-                asyncio.get_event_loop().run_until_complete(monitor.update_loop_from_thread())
-            except KeyboardInterrupt:
-                logger.debug("interrupted")
-
-        def main_loop(stdscr):
-            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
-            monitor = StockMonitor(scanners, update_freq=update_freq, max_thread=max_threads)
-            app = Main(monitor, silent=silent, silent_error=silent_error, stdscr=stdscr)
-            with monitor.running_in_thread():
-                logger.debug("monitor started")
-                try:
-                    while True:
-                        app.draw()
-                        app.input_poll()
-                        time.sleep(1.0 / 10)
-                except ExitException:
-                    pass
-                logger.debug("terminate monitor")
-
-        if gui:
-            curses.wrapper(main_loop)
+    @staticmethod
+    def _print_scan_result(scanner, result, *args):
+        print(f"{result.timestamp.strftime('%Y/%m/%d %H:%M:%S')} - {scanner.name} - ", end='')
+        if result.is_in_stock:
+            print(f"IN STOCK - {scanner.user_url}")
+        elif result.is_error:
+            print(f"ERROR - {type(result.error).__name__}")
+        elif result.items is not None:
+            print(f"UNAVAILABLE - watching {plural_str('item', len(result.items))}")
         else:
-            main_loop_nogui()
+            print(f"PENDING")
 
-    except Exception as ex:
-        print(f"Unexpected ! {ex}")
-        traceback.print_exc()
+    def scan(self):
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+        try:
+            monitor = StockMonitor(self.scanners)
+            monitor.register_to_scan(Main._print_scan_result)
+            asyncio.get_event_loop().run_until_complete(monitor.single_update())
+        except KeyboardInterrupt:
+            logger.debug("interrupted")
+
+    def loop(self, update_freq=30):
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+        try:
+            monitor = StockMonitor(self.scanners, update_freq=update_freq)
+            monitor.register_to_scan(Main._print_scan_result)
+            asyncio.get_event_loop().run_until_complete(monitor.update_loop())
+        except KeyboardInterrupt:
+            logger.debug("interrupted")
+
+    def gui(self, update_freq=30, silent=False, silent_error=True):
+        curses.wrapper(partial(self._gui_loop, update_freq, silent, silent_error))
+
+    def _gui_loop(self, update_freq, silent, silent_error, stdscr):
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+        monitor = StockMonitor(self.scanners, update_freq=update_freq)
+        app = CursesGUI(monitor, silent=silent, silent_error=silent_error, stdscr=stdscr)
+        with monitor.running_in_thread():
+            logger.debug("monitor started")
+            try:
+                while True:
+                    app.draw()
+                    app.input_poll()
+                    time.sleep(1.0 / 10)
+            except ExitException:
+                pass
+            logger.debug("terminate monitor")
 
 
 if __name__ == '__main__':
     import fire
 
-    fire.Fire(main)
+    fire.Fire(Main)
