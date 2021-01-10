@@ -5,12 +5,18 @@ from typing import Optional, List, Tuple, Iterable
 from stockscan.scanner import Scanner, ScanResult
 from datetime import datetime
 from threading import Thread
+from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
 
 async def update_scanner(scanner):
     return await scanner.scan()
+
+
+class InterruptEvent(Exception):
+    def __init__(self):
+        super().__init__("Interrupted by user")
 
 
 class StockMonitor:
@@ -52,13 +58,17 @@ class StockMonitor:
             self._last_results[i] = result
             self.dispatch_scan_event(self._scanners[i], result, self._last_stock_time[i], self._consecutive_errors[i])
 
-    async def cancelable(self, coro):
+    async def interruptible(self, coro):
         done, pending = await asyncio.wait([coro, self._cancel_event.wait()], return_when=asyncio.FIRST_COMPLETED)
         if self._cancel_event.is_set():
-            for task in pending:
-                if not task.cancelled():
-                    task.cancel()
-                return await task
+            logger.debug("task interrupted by user")
+            cancel_task = asyncio.gather(*pending)
+            cancel_task.cancel()
+            try:
+                await cancel_task
+            except asyncio.CancelledError:
+                logger.debug("remaining tasks canceled")
+                raise InterruptEvent()
         return next(iter(done)).result()
 
     async def update_round(self):
@@ -69,13 +79,6 @@ class StockMonitor:
         delay_elapsed = (datetime.now() - self._last_update_time).total_seconds()
         if delay_elapsed < self._update_freq:
             await asyncio.sleep(self._update_freq - delay_elapsed)
-
-    async def update_loop(self):
-        while not self.stop_update:
-            try:
-                await self.cancelable(self.update_round())
-            except asyncio.CancelledError:
-                self._cancel_event.clear()
 
     def dispatch_scan_event(self, scanner: Scanner, result: ScanResult, last_stock_time: Optional[datetime],
                             consecutive_errors: int):
@@ -91,6 +94,15 @@ class StockMonitor:
     def unregister_from_scan(self, callback):
         self._scan_event_callbacks.remove(callback)
 
+    async def update_loop_from_thread(self):
+        self._loop = asyncio.get_running_loop()
+        self._cancel_event = asyncio.Event()
+        while not self.stop_update:
+            try:
+                await self.interruptible(self.update_round())
+            except InterruptEvent:
+                self._cancel_event.clear()
+
     def interrupt(self) -> None:
         def cancel():
             self._cancel_event.set()
@@ -100,23 +112,31 @@ class StockMonitor:
     def update_now(self) -> None:
         self.interrupt()
 
-    def start(self) -> None:
+    def start_in_thread(self) -> None:
+        logger.debug('start thread')
         self.stop_update = False
-        self._loop = asyncio.new_event_loop()
-        # self._loop.set_debug(True)
-        self._cancel_event = asyncio.Event(loop=self._loop)
 
-        def _run_update_loop(loop):
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(self.update_loop())
+        def _run_update_loop():
+            asyncio.run(self.update_loop_from_thread())
 
-        self._update_thread = Thread(target=_run_update_loop, args=(self._loop,), daemon=True)
+        self._update_thread = Thread(target=_run_update_loop, daemon=True)
         self._update_thread.start()
+        logger.debug('thread started')
 
     def terminate(self) -> None:
+        logger.debug('terminate thread')
         self.stop_update = True
         self.interrupt()
         self._update_thread.join()
+        logger.debug('thread joined')
+
+    @contextmanager
+    def running_in_thread(self):
+        self.start_in_thread()
+        try:
+            yield
+        finally:
+            self.terminate()
 
     @property
     def last_results(self) -> Iterable[Tuple[ScanResult, Optional[datetime], int]]:

@@ -6,6 +6,7 @@ from stockscan import Scanner, DummyScanner, StockMonitor, ScanResult, Item
 from stockscan.vendors import HardwareFrScanner, LDLCScanner, NvidiaScanner, TopAchatScanner, RueDuCommerceScanner, \
     MaterielNetScanner, CaseKingScanner, AlternateScanner
 
+import asyncio
 import traceback
 import time
 import curses
@@ -19,7 +20,7 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
-def loop(file):
+def loop_sound(file):
     while True:
         playsound(file)
 
@@ -82,7 +83,7 @@ class Main:
 
     def _play_loop(self, file):
         logger.debug("create notification process")
-        self._notification_process = Process(target=loop,
+        self._notification_process = Process(target=loop_sound,
                                              args=(file,))
         self._notification_process.daemon = True
         self._notification_process.start()
@@ -275,10 +276,8 @@ def main(update_freq=30, silent=False, max_threads=8, foreign=True, nvidia=True,
         # scanners = dummy_scanners
 
         def main_loop_nogui():
-            monitor = StockMonitor(scanners, update_freq=update_freq, max_thread=max_threads)
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
             try:
-                monitor.start()
-
                 def print_scan(scanner: Scanner, result: ScanResult, *args):
                     print(f"{result.timestamp.strftime('%Y/%m/%d %H:%M:%S')} - {scanner.name} - ", end='')
                     if result.is_in_stock:
@@ -289,36 +288,33 @@ def main(update_freq=30, silent=False, max_threads=8, foreign=True, nvidia=True,
                         print(f"UNAVAILABLE - watching {plural_str('item', len(result.items))}")
                     else:
                         print(f"PENDING")
+
+                monitor = StockMonitor(scanners, update_freq=update_freq, max_thread=max_threads)
                 monitor.register_to_scan(print_scan)
-                while True:
-                    time.sleep(1)
+                asyncio.get_event_loop().run_until_complete(monitor.update_loop_from_thread())
             except KeyboardInterrupt:
-                pass
-            finally:
-                monitor.terminate()
+                logger.debug("interrupted")
 
         def main_loop(stdscr):
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
             monitor = StockMonitor(scanners, update_freq=update_freq, max_thread=max_threads)
             app = Main(monitor, silent=silent, silent_error=silent_error, stdscr=stdscr)
-            try:
-                monitor.start()
-                logger.info("monitor started")
-                while True:
-                    app.draw()
-                    app.input_poll()
-                    time.sleep(1.0 / 10)
-            except ExitException:
-                pass
-            finally:
-                logger.info("terminate monitor")
-                monitor.terminate()
+            with monitor.running_in_thread():
+                logger.debug("monitor started")
+                try:
+                    while True:
+                        app.draw()
+                        app.input_poll()
+                        time.sleep(1.0 / 10)
+                except ExitException:
+                    pass
+                logger.debug("terminate monitor")
 
         if gui:
             curses.wrapper(main_loop)
         else:
             main_loop_nogui()
-
-        print("exiting...")
 
     except Exception as ex:
         print(f"Unexpected ! {ex}")
