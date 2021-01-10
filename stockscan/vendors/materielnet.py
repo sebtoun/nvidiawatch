@@ -3,8 +3,9 @@ from typing import List
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 from urllib.parse import quote
+from aiohttp import ClientTimeout
 
-import requests
+import aiohttp
 import re
 import json
 
@@ -26,7 +27,7 @@ class MaterielNetScanner(SearchBasedHttpScanner):
         assert len(title) == 1, "Multiple item title found or no title found"
         return title[0].get_text()
 
-    def _scan_response(self, content: BeautifulSoup) -> List[Item]:
+    async def _scan_response(self, content: BeautifulSoup) -> List[Item]:
         def get_entry_id(item: Tag):
             return item.select_one("[data-offer-id]").attrs["data-offer-id"]
 
@@ -43,11 +44,13 @@ class MaterielNetScanner(SearchBasedHttpScanner):
         headers = dict(self.request_headers)
         headers.update({'x-requested-with': 'XMLHttpRequest'})
         stock_query_url = "https://www.materiel.net/product-listing/stock-price/"
-        resp = requests.post(stock_query_url, data=stock_query_payload, headers=headers)
-        resp.raise_for_status()
-        content_json = resp.json()
-        item_stocks = content_json["stock"]
-        item_prices = content_json["price"]
+        async with aiohttp.ClientSession(headers=headers,
+                                         raise_for_status=True,
+                                         timeout=ClientTimeout(total=self.time_out)) as session:
+            async with session.post(stock_query_url, data=stock_query_payload) as resp:
+                content_json = await resp.json()
+                item_stocks = content_json["stock"]
+                item_prices = content_json["price"]
 
         def get_price(item: str) -> float:
             return float(BeautifulSoup(item, "html.parser").get_text().strip().replace('€', '.').replace('\xa0', ''))

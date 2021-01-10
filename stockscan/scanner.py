@@ -117,7 +117,7 @@ class HttpScanner(Scanner):
                     in_stock=self._is_item_in_stock(entry, page))
         return item
 
-    def _scan_response(self, content: Page) -> List[Item]:
+    async def _scan_response(self, content: Page) -> List[Item]:
         entries = self._get_all_items_in_page(content)
         return [item for item in (self._get_item(entry, content) for entry in entries) if self.filter_item(item)]
 
@@ -142,7 +142,7 @@ class HttpScanner(Scanner):
                 except (JSONDecodeError, ContentTypeError):
                     text = await resp.text()
                     content = make_soup(text)
-                return self._scan_response(content)
+                return await self._scan_response(content)
 
     @property
     def user_url(self) -> str:
