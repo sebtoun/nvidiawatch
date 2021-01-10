@@ -10,6 +10,9 @@ import traceback
 import time
 import curses
 import logging
+from pprint import PrettyPrinter
+
+pp = PrettyPrinter(indent=2)
 
 logging.basicConfig(filename='output.log', filemode='w', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -268,14 +271,29 @@ def main(update_freq=30, silent=False, max_threads=8, foreign=True, nvidia=True,
             DummyScanner(delay=1, error=1, stocks=1),
         ]
 
-        scanners = dummy_scanners
+        # scanners = dummy_scanners
 
         def main_loop_nogui():
             monitor = StockMonitor(scanners, update_freq=update_freq, max_thread=max_threads)
             try:
                 monitor.start()
+
+                def print_scan(scanner: Scanner, result: ScanResult, last_stock_time: Optional[datetime],
+                               consecutive_errors: int):
+                    print(f"{result.timestamp.strftime('%Y/%m/%d %H:%M:%S')} - {scanner.name} - ", end='')
+                    if result.is_in_stock:
+                        print(f"IN STOCK - {scanner.user_url}")
+                    elif result.is_error:
+                        print(f"ERROR - {type(result.error).__name__}")
+                    elif result.items is not None:
+                        print(f"UNAVAILABLE - watching {plural_str('item', len(result.items))}")
+                    else:
+                        print(f"PENDING")
+                monitor.register_to_scan(print_scan)
                 while True:
-                    time.sleep(1.0 / 10)
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                pass
             finally:
                 monitor.terminate()
 
