@@ -25,6 +25,9 @@ class StockMonitor:
         self._last_stock_time: List[Optional[datetime]] = [None] * len(scanners)
         self._consecutive_errors: List[int] = [0] * len(scanners)
 
+        # scan events
+        self._scan_event_callbacks = set()
+
         # update thread
         self.stop_update = False
         self._update_thread: Optional[Thread] = None
@@ -47,6 +50,7 @@ class StockMonitor:
             if result.is_in_stock:
                 self._last_stock_time[i] = result.timestamp
             self._last_results[i] = result
+            self.dispatch_scan_event(self._scanners[i], result, self._last_stock_time[i], self._consecutive_errors[i])
 
     async def cancelable(self, coro):
         done, pending = await asyncio.wait([coro, self._cancel_event.wait()], return_when=asyncio.FIRST_COMPLETED)
@@ -72,6 +76,20 @@ class StockMonitor:
                 await self.cancelable(self.update_round())
             except asyncio.CancelledError:
                 self._cancel_event.clear()
+
+    def dispatch_scan_event(self, scanner: Scanner, result: ScanResult, last_stock_time: Optional[datetime],
+                            consecutive_errors: int):
+        for fun in self._scan_event_callbacks:
+            try:
+                fun(scanner, result, last_stock_time, consecutive_errors)
+            except Exception as err:
+                logger.exception("Exception during scan event dispatch", err)
+
+    def register_to_scan(self, callback):
+        self._scan_event_callbacks.add(callback)
+
+    def unregister_from_scan(self, callback):
+        self._scan_event_callbacks.remove(callback)
 
     def interrupt(self) -> None:
         def cancel():
