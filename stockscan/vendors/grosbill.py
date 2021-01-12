@@ -3,6 +3,7 @@ from typing import List
 from urllib.parse import quote
 from bs4 import BeautifulSoup
 from bs4.element import Tag
+from yarl import URL
 
 
 class GrosBillScanner(SearchBasedHttpScanner):
@@ -27,8 +28,9 @@ class GrosBillScanner(SearchBasedHttpScanner):
         if price is not None:
             return float(price.get_text().strip().replace("€", "."))
         price = item.select_one("b[itemprop=price]")
-        assert price is not None, "could not get price"
-        return float(price.attrs["content"])
+        if price is not None:
+            return float(price.attrs["content"])
+        return 0
 
     def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
         stock = item.select_one(".btn_en_stock_wrapper")
@@ -38,3 +40,9 @@ class GrosBillScanner(SearchBasedHttpScanner):
         if stock is not None:
             return stock.attrs["href"] == "https://schema.org/InStock"
         return False
+
+    def _get_item_url(self, item: Tag, content: BeautifulSoup) -> str:
+        link = item.select_one(".product_description a")
+        if link is not None:
+            return self.request_url.join(URL(link.attrs["href"])).human_repr()
+        return self.request_url.human_repr()

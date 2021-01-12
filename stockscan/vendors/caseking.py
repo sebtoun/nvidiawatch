@@ -28,3 +28,6 @@ class CaseKingScanner(SearchBasedHttpScanner):
 
     def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
         return item.find(class_="deliverable1") is not None
+
+    def _get_item_url(self, item: Tag, content: BeautifulSoup) -> str:
+        return item.find(class_="producttitles").attrs["href"]

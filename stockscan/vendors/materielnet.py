@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 from bs4.element import Tag
 from urllib.parse import quote
 from aiohttp import ClientTimeout
+from yarl import URL
 
 import aiohttp
 import re
@@ -26,6 +27,12 @@ class MaterielNetScanner(SearchBasedHttpScanner):
         title = item.select(".c-products-list__item .c-product__title, .c-product__header h1")
         assert len(title) == 1, "Multiple item title found or no title found"
         return title[0].get_text()
+
+    def _get_item_url(self, item: Tag, content: BeautifulSoup) -> str:
+        link = item.select_one(".c-products-list__item .c-product__link")
+        if link is not None:
+            return self.request_url.join(URL(link.attrs["href"])).human_repr()
+        return self.request_url.human_repr()
 
     async def _scan_response(self, content: BeautifulSoup) -> List[Item]:
         def get_entry_id(item: Tag):
@@ -62,5 +69,6 @@ class MaterielNetScanner(SearchBasedHttpScanner):
 
         return [Item(title=self._get_item_title(entry, content),
                      price=get_price(item_prices[entry_id]),
-                     in_stock=is_in_stock(item_stocks[entry_id]))
+                     in_stock=is_in_stock(item_stocks[entry_id]),
+                     url=self._get_item_url(entry, content))
                 for entry_id, entry in entries.items()]

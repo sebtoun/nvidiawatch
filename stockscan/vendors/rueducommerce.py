@@ -1,6 +1,7 @@
 from stockscan.scanner import SearchBasedHttpScanner
 from typing import List
 from urllib.parse import quote
+from yarl import URL
 
 
 class RueDuCommerceScanner(SearchBasedHttpScanner):
@@ -25,6 +26,9 @@ class RueDuCommerceScanner(SearchBasedHttpScanner):
     def _is_item_in_stock(self, item: dict, json: dict) -> bool:
         assert item["shop_name"] == "Rue du Commerce", f"Wrong shop name: {item['shop_name']}"
         return item["Disponibilite"] == "en stock"
+
+    def _get_item_url(self, item: dict, content: dict) -> str:
+        return self.request_url.join(URL(item["lien"])).human_repr()
 
     @property
     def user_url(self) -> str:

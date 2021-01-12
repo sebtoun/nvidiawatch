@@ -3,6 +3,7 @@ from typing import List
 from urllib.parse import quote
 from bs4 import BeautifulSoup
 from bs4.element import Tag
+from yarl import URL
 
 
 class TopAchatScanner(SearchBasedHttpScanner):
@@ -32,3 +33,9 @@ class TopAchatScanner(SearchBasedHttpScanner):
 
     def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
         return item.find(class_="en-stock") is not None
+
+    def _get_item_url(self, item: Tag, content: BeautifulSoup) -> str:
+        link = item.select_one(".libelle a")
+        if link is not None:
+            return self.request_url.join(URL(link.attrs["href"])).human_repr()
+        return self.request_url.human_repr()

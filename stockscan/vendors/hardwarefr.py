@@ -3,6 +3,7 @@ from typing import List
 from urllib.parse import quote
 from bs4 import BeautifulSoup
 from bs4.element import Tag
+from yarl import URL
 
 import json
 import re
@@ -53,3 +54,9 @@ class HardwareFrScanner(SearchBasedHttpScanner):
             script_data = ''.join(s.string for s in bs.find_all("script", attrs={"src": None}))
             stock_type = int(re.search("#{id}\s+\.stock-wrapper.*?stock-([0-9])".format(id=item_id), script_data)[1])
             return stock_type <= 2
+
+    def _get_item_url(self, item: Tag, content: BeautifulSoup) -> str:
+        link = item.findChild("a")
+        if link is not None:
+            return self.request_url.join(URL(link.attrs["href"])).human_repr()
+        return self.request_url.human_repr()

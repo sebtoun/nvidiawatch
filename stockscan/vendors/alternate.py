@@ -3,6 +3,7 @@ from typing import List
 from urllib.parse import quote
 from bs4 import BeautifulSoup
 from bs4.element import Tag
+from yarl import URL
 
 
 class AlternateScanner(SearchBasedHttpScanner):
@@ -30,3 +31,6 @@ class AlternateScanner(SearchBasedHttpScanner):
 
     def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
         return item.select_one(".stockStatus.available_stock") is not None
+
+    def _get_item_url(self, item: Tag, content: BeautifulSoup) -> str:
+        return self.request_url.join(URL(item.find(class_="productLink").attrs["href"])).human_repr()

@@ -10,6 +10,8 @@ import asyncio
 import time
 import curses
 import logging
+import json
+import dataclasses
 from pprint import PrettyPrinter
 
 pp = PrettyPrinter(indent=2)
@@ -233,29 +235,40 @@ class CursesGUI:
         except:
             pass
         else:
-            if key == 'q' or key == 'Q':
+            keyup = key.upper()
+            if keyup == 'Q':
                 raise ExitException
-            elif key == 'm' or key == 'M':
+            elif keyup == 'M':
                 self.toggle_mute()
-            elif key == 'u' or key == 'U':
+            elif keyup == 'U':
                 self.monitor.update_now()
+
+    async def update_loop(self):
+        try:
+            while True:
+                self.draw()
+                self.input_poll()
+                await asyncio.sleep(0.1)
+        except ExitException:
+            pass
 
 
 class Main:
     """
     Monitor vendor sites.
     """
-    def __init__(self, foreign=True, nvidia=True,
-                 pattern="evga 3080", **kwargs):
-        self._setup_scanners(pattern, nvidia, foreign, **kwargs)
 
-    def _setup_scanners(self, pattern="evga 3080", nvidia=True, foreign=True, **kwargs):
+    def __init__(self, foreign=True, nvidia=True,
+                 pattern="evga 3080"):
+        self._setup_scanners(pattern, nvidia, foreign)
+
+    def _setup_scanners(self, pattern="evga 3080", nvidia=True, foreign=True):
         scanners = []
         custom_ldlc_url = "https://www.ldlc.com/nouveautes/+fcat-4684+fdi-1+fv1026-5801+fv121-19183,19185.html"
         if nvidia:
-            scanners.append(NvidiaScanner("3080", **kwargs))
-            scanners.append(NvidiaScanner("3090", **kwargs))
-            scanners.append(LDLCScanner("", custom_url=custom_ldlc_url, **kwargs))
+            scanners.append(NvidiaScanner("3080"))
+            scanners.append(NvidiaScanner("3090"))
+            scanners.append(LDLCScanner("", custom_url=custom_ldlc_url))
 
         if pattern:
             for ScannerClass in [HardwareFrScanner,
@@ -265,11 +278,11 @@ class Main:
                                  MaterielNetScanner,
                                  AlternateScanner,
                                  GrosBillScanner]:
-                scanners.append(ScannerClass(pattern, **kwargs))
+                scanners.append(ScannerClass(pattern))
 
             if foreign:
-                scanners.append(CaseKingScanner(pattern, **kwargs))
-                scanners.append(AlternateScanner(pattern, locale="de", **kwargs))
+                scanners.append(CaseKingScanner(pattern))
+                scanners.append(AlternateScanner(pattern, locale="de"))
 
         dummy_scanners = [
             GrosBillScanner("rtx 3090")
@@ -281,40 +294,41 @@ class Main:
         self.scanners = scanners
 
     @staticmethod
-    def _print_scan_result(scanner, result, *args):
-        print(f"{result.timestamp.strftime('%Y/%m/%d %H:%M:%S')} - {scanner.name} - ", end='')
-        if result.is_in_stock:
-            print(f"IN STOCK - {scanner.user_url}")
-        elif result.is_error:
-            print(f"ERROR - {type(result.error).__name__}:{result.error}")
-        elif result.items is not None:
-            print(f"UNAVAILABLE - watching {plural_str('item', len(result.items))}")
+    def _print_scan_result(json_output: bool, scanner, result, *args):
+        if json_output:
+            print(json.dumps({"scanner": scanner.name, "result": dataclasses.asdict(result)}, indent=4, default=str))
         else:
-            print(f"PENDING")
+            print(f"{result.timestamp.strftime('%Y/%m/%d %H:%M:%S')} - {scanner.name} - ", end='')
+            if result.is_in_stock:
+                print(f"IN STOCK - {scanner.user_url}")
+            elif result.is_error:
+                print(f"ERROR - {type(result.error).__name__}:{result.error}")
+            elif result.items is not None:
+                print(f"UNAVAILABLE - watching {plural_str('item', len(result.items))}")
+            else:
+                print(f"PENDING")
 
-    def scan(self):
+    def scan(self, json=False):
         """
         Perform a single scan on all vendors.
         """
-        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
         try:
             monitor = StockMonitor(self.scanners)
-            monitor.register_to_scan(Main._print_scan_result)
+            monitor.register_to_scan(partial(Main._print_scan_result, json))
             asyncio.get_event_loop().run_until_complete(monitor.single_update())
         except KeyboardInterrupt:
             logger.debug("interrupted")
 
-    def loop(self, update_freq=30):
+    def loop(self, json=False, update_freq=30):
         """
         Loop scan on all vendors at fixed interval.
 
         Args:
             update_freq (float): The interval at which scans are performed.
         """
-        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
         try:
             monitor = StockMonitor(self.scanners, update_freq=update_freq)
-            monitor.register_to_scan(Main._print_scan_result)
+            monitor.register_to_scan(partial(Main._print_scan_result, json))
             asyncio.get_event_loop().run_until_complete(monitor.update_loop())
         except KeyboardInterrupt:
             logger.debug("interrupted")
@@ -331,20 +345,13 @@ class Main:
         curses.wrapper(partial(self._gui_loop, update_freq, silent, silent_error))
 
     def _gui_loop(self, update_freq, silent, silent_error, stdscr):
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
         monitor = StockMonitor(self.scanners, update_freq=update_freq)
         app = CursesGUI(monitor, silent=silent, silent_error=silent_error, stdscr=stdscr)
-        with monitor.running_in_thread():
-            logger.debug("monitor started")
-            try:
-                while True:
-                    app.draw()
-                    app.input_poll()
-                    time.sleep(1.0 / 10)
-            except ExitException:
-                pass
-            logger.debug("terminate monitor")
+
+        async def main_loop():
+            await asyncio.wait(map(asyncio.create_task, [app.update_loop(), monitor.update_loop()]),
+                               return_when=asyncio.FIRST_COMPLETED)
+        asyncio.get_event_loop().run_until_complete(main_loop())
 
 
 if __name__ == '__main__':

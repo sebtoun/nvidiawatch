@@ -33,6 +33,7 @@ class Item:
     title: str
     price: float
     in_stock: bool
+    url: str
 
 
 @dataclass
@@ -104,6 +105,9 @@ class HttpScanner(Scanner):
     def _get_item_price(self, item: PageEntry, content: Page) -> float:
         raise Exception("Not Implemented")
 
+    def _get_item_url(self, item: PageEntry, content: Page) -> str:
+        return self.user_url
+
     def filter_item(self, item: Item) -> bool:
         return True
 
@@ -114,7 +118,8 @@ class HttpScanner(Scanner):
     def _get_item(self, entry: PageEntry, page: Page) -> Item:
         item = Item(title=self._get_item_title(entry, page),
                     price=self._get_item_price(entry, page),
-                    in_stock=self._is_item_in_stock(entry, page))
+                    in_stock=self._is_item_in_stock(entry, page),
+                    url=self._get_item_url(entry, page))
         return item
 
     async def _scan_response(self, content: Page) -> List[Item]:
@@ -142,6 +147,7 @@ class HttpScanner(Scanner):
                 except (JSONDecodeError, ContentTypeError):
                     text = await resp.text()
                     content = make_soup(text)
+                self.request_url = resp.url
                 return await self._scan_response(content)
 
     @property
