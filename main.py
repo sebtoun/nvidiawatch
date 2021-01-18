@@ -268,7 +268,7 @@ class Main:
         if nvidia:
             scanners.append(NvidiaScanner("3080"))
             scanners.append(NvidiaScanner("3090"))
-            scanners.append(LDLCScanner("", custom_url=custom_ldlc_url))
+            scanners.append(LDLCScanner("3080", custom_url=custom_ldlc_url))
 
         if pattern:
             for ScannerClass in [HardwareFrScanner,
@@ -276,7 +276,7 @@ class Main:
                                  TopAchatScanner,
                                  RueDuCommerceScanner,
                                  MaterielNetScanner,
-                                 AlternateScanner,
+                                 AlternateFRScanner,
                                  GrosBillScanner]:
                 scanners.append(ScannerClass(pattern))
 
@@ -355,6 +355,7 @@ class Main:
 
 
 if __name__ == '__main__':
+    # print(AlternateFRScanner("rtx 3090").user_url)
+    # print(asyncio.run(AlternateFRScanner("rtx 3090").scan()))
     import fire
-
     fire.Fire(Main)

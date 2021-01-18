@@ -1,4 +1,4 @@
-from .alternate import AlternateScanner
+from .alternate import AlternateScanner, AlternateFRScanner
 from .caseking import CaseKingScanner
 from .hardwarefr import HardwareFrScanner
 from .ldlc import LDLCScanner
@@ -9,6 +9,7 @@ from .topachat import TopAchatScanner
 from .grosbill import GrosBillScanner
 
 __all__ = ['AlternateScanner',
+           'AlternateFRScanner',
            'CaseKingScanner',
            'HardwareFrScanner',
            'LDLCScanner',

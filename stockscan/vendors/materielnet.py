@@ -67,8 +67,8 @@ class MaterielNetScanner(SearchBasedHttpScanner):
             assert match, "Failed to match string looking for stock"
             return int(match[1]) <= 2
 
-        return [Item(title=self._get_item_title(entry, content),
-                     price=get_price(item_prices[entry_id]),
-                     in_stock=is_in_stock(item_stocks[entry_id]),
-                     url=self._get_item_url(entry, content))
-                for entry_id, entry in entries.items()]
+        return [item for item in (Item(title=self._get_item_title(entry, content),
+                                       price=get_price(item_prices[entry_id]),
+                                       in_stock=is_in_stock(item_stocks[entry_id]),
+                                       url=self._get_item_url(entry, content))
+                                  for entry_id, entry in entries.items()) if self.filter_item(item)]
