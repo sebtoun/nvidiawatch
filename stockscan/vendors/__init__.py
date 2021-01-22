@@ -7,6 +7,7 @@ from .nvidia import NvidiaScanner
 from .rueducommerce import RueDuCommerceScanner
 from .topachat import TopAchatScanner
 from .grosbill import GrosBillScanner
+from .amd import AMDScanner
 
 __all__ = ['AlternateScanner',
            'AlternateFRScanner',
@@ -17,4 +18,5 @@ __all__ = ['AlternateScanner',
            'NvidiaScanner',
            'RueDuCommerceScanner',
            'TopAchatScanner',
-           'GrosBillScanner']
+           'GrosBillScanner',
+           'AMDScanner']

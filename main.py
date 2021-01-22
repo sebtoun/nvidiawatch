@@ -79,8 +79,13 @@ class CursesGUI:
         }
         height = self.layout["padding"][1] + 1 + 2 * len(monitor.scanners) + 1
         width = stdscr.getmaxyx()[1]
-        self.pad = curses.newpad(height, width)
+        self.pad_size = (height, width)
+        self.pad = curses.newpad(*self.pad_size)
         self.stdscr = stdscr
+
+    def _grow_pad(self, sizeyx: tuple[int, int]):
+        self.pad_size = (self.pad_size[0] + sizeyx[0], self.pad_size[1] + sizeyx[1])
+        self.pad = curses.newpad(*self.pad_size)
 
     def _play_loop(self, file):
         logger.debug("create notification process")
@@ -166,6 +171,15 @@ class CursesGUI:
 
         y += 1
         for scanner, (result, last_stock_time, error_count) in zip(self.monitor.scanners, self.monitor.last_results):
+            if result.is_in_stock:
+                items_in_stock = [item for item in result.items if item.in_stock]
+                height = 1 + len(items_in_stock)
+            else:
+                items_in_stock = []
+                height = 2
+            # if y + height >= self.pad_size[0]:
+            #     self._grow_pad((height, 0))
+
             x = padding[0]
 
             state = CursesGUI.get_state(result)
@@ -195,27 +209,33 @@ class CursesGUI:
                 stdscr.addstr(y, x, f"{type(result.error).__name__}: {result.error}", color)
             elif result.items is not None:
                 if result.is_in_stock:
-                    filter_pred = lambda it: it.in_stock
+                    priced_items = items_in_stock
                     text = "in stock"
                 else:
-                    filter_pred = None
+                    priced_items = result.items
                     text = "watched"
 
-                prices = sorted([item.price for item in filter(filter_pred, result.items)])
-                stdscr.addstr(y, x,
-                              f"{plural_str('item', len(prices))} {text}")
+                prices = sorted([item.price for item in priced_items])
+                stdscr.addstr(y, x, f"{plural_str('item', len(prices))} {text}")
                 if len(prices) > 0:
                     if len(prices) > 1:
                         price_text = f"[{prices[0]} ~ {prices[-1]}]"
                     else:
                         price_text = f"{prices[0]}"
                     stdscr.addstr(f" @ {price_text}")
-
-            stdscr.addstr(y + 1, padding[0],
-                          f"\tCheck ")
-            stdscr.addstr(scanner.user_url, curses.color_pair(3) | curses.A_UNDERLINE)
-
-            y += 2
+            y += 1
+            if result.is_in_stock:
+                stdscr.addstr(y, padding[0], f"\tCheck ")
+                stdscr.addstr(items_in_stock[0].url, curses.color_pair(3) | curses.A_UNDERLINE)
+                y += 1
+                # for item in items_in_stock:
+                #     stdscr.addstr(y, padding[0], f"\tItem ")
+                #     stdscr.addstr(item.url, curses.color_pair(3) | curses.A_UNDERLINE)
+                #     y += 1
+            else:
+                stdscr.addstr(y, padding[0], f"\tCheck ")
+                stdscr.addstr(scanner.user_url, curses.color_pair(3) | curses.A_UNDERLINE)
+                y += 1
 
         stdscr.addstr(y, padding[0], f"[ 'Q'uit | 'U'pdate now | ")
         mute_cmd = "Un'm'ute" if self.silent else "'M'ute"
@@ -258,27 +278,27 @@ class Main:
     Monitor vendor sites.
     """
 
-    def __init__(self, foreign=True, nvidia=True,
-                 pattern="evga 3080"):
-        self._setup_scanners(pattern, nvidia, foreign)
+    def __init__(self, foreign=True, nvidia=True, others=True, amd=True,
+                 pattern="rtx 3080"):
+        self._setup_scanners(pattern, nvidia, foreign, others, amd)
 
-    def _setup_scanners(self, pattern="evga 3080", nvidia=True, foreign=True):
+    def _setup_scanners(self, pattern: str, nvidia: bool, foreign: bool, others: bool, amd: bool):
+        patterns = pattern.split(',')
         scanners = []
-        custom_ldlc_url = "https://www.ldlc.com/nouveautes/+fcat-4684+fdi-1+fv1026-5801+fv121-19183,19185.html"
-        if nvidia:
-            scanners.append(NvidiaScanner("3080"))
-            scanners.append(NvidiaScanner("3090"))
-            scanners.append(LDLCScanner("3080", custom_url=custom_ldlc_url))
-
-        if pattern:
-            for ScannerClass in [HardwareFrScanner,
-                                 LDLCScanner,
-                                 TopAchatScanner,
-                                 RueDuCommerceScanner,
-                                 MaterielNetScanner,
-                                 AlternateFRScanner,
-                                 GrosBillScanner]:
-                scanners.append(ScannerClass(pattern))
+        for pattern in patterns:
+            if nvidia:
+                scanners.append(NvidiaScanner(pattern))
+            if amd:
+                scanners.append(AMDScanner(pattern))
+            if others:
+                for ScannerClass in [HardwareFrScanner,
+                                     LDLCScanner,
+                                     TopAchatScanner,
+                                     RueDuCommerceScanner,
+                                     MaterielNetScanner,
+                                     AlternateFRScanner,
+                                     GrosBillScanner]:
+                    scanners.append(ScannerClass(pattern))
 
             if foreign:
                 scanners.append(CaseKingScanner(pattern))

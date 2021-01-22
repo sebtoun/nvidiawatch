@@ -130,11 +130,16 @@ class HttpScanner(Scanner):
     def request_headers(self) -> dict:
         return {'user-agent': USER_AGENT}
 
+    @property
+    def cookies(self) -> dict:
+        return {}
+
     async def _scan(self):
         if self.method not in ['GET', 'POST']:
             raise ValueError(f"Unsupported method: {self.method}")
 
         async with aiohttp.ClientSession(headers=self.request_headers,
+                                         cookies=self.cookies,
                                          raise_for_status=True,
                                          timeout=ClientTimeout(total=self.time_out)) as session:
             if self.method == 'GET':
