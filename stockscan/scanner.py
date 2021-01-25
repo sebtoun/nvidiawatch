@@ -11,6 +11,8 @@ import aiohttp
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 " \
              "Safari/537.36 "
 
+ALL_SCANNERS = {}
+
 
 def make_soup(content):
     return BeautifulSoup(content, 'html.parser')
@@ -51,7 +53,17 @@ class ScanResult:
         return self.items and any(item.in_stock for item in self.items)
 
 
-class Scanner:
+class MetaScanner(type):
+    def __new__(cls, name, bases, namespace, **kargs):
+        return super(MetaScanner, cls).__new__(cls, name, bases, namespace)
+
+    def __init__(cls, name, bases, namespace, is_concrete_scanner=True):
+        super(MetaScanner, cls).__init__(name, bases, namespace)
+        if is_concrete_scanner:
+            ALL_SCANNERS[name.lower()] = cls
+
+
+class Scanner(metaclass=MetaScanner, is_concrete_scanner=False):
     def __init__(self, name: str):
         self._name = name
 
@@ -80,7 +92,7 @@ class Scanner:
         return self._name
 
 
-class HttpScanner(Scanner):
+class HttpScanner(Scanner, is_concrete_scanner=False):
     PageEntry = Union[dict, Tag]
     Page = Union[dict, BeautifulSoup]
 
@@ -160,7 +172,7 @@ class HttpScanner(Scanner):
         return self.target_url
 
 
-class SearchBasedHttpScanner(HttpScanner):
+class SearchBasedHttpScanner(HttpScanner, is_concrete_scanner=False):
     def __init__(self, name: str, search_terms: str, **kwargs):
         self._keywords, self._blacklist = parse_search_terms(search_terms)
         self._item_count = 0

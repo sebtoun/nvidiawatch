@@ -9,7 +9,7 @@ class DummyException(RuntimeError):
         super().__init__("Dummy exception veryyyy long" * 5)
 
 
-class DummyScanner(Scanner):
+class DummyScanner(Scanner, is_concrete_scanner=False):
     def __init__(self, stocks=1, unavailable=1, error=1, delay=1):
         super().__init__("Dummy")
         self._weights = [stocks, unavailable, error]

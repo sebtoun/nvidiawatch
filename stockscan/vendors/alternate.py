@@ -72,7 +72,7 @@ class AlternateFRScanner(SearchBasedHttpScanner):
         return f'https://www.alternate.fr/listing.xhtml?q={quote(" ".join(self._keywords))}'
 
 
-class AlternateScanner(SearchBasedHttpScanner):
+class AlternateScanner(SearchBasedHttpScanner, is_concrete_scanner=False):
     def __init__(self, search_terms: str, locale="de", **kwargs):
         self._locale = locale.lower()
         name = "Alternate" + locale.upper()
@@ -100,3 +100,8 @@ class AlternateScanner(SearchBasedHttpScanner):
 
     def _get_item_url(self, item: Tag, content: BeautifulSoup) -> str:
         return self.request_url.join(URL(item.find(class_="productLink").attrs["href"])).human_repr()
+
+
+class AlternateDEScanner(AlternateScanner):
+    def __init__(self, search_terms: str, **kwargs):
+        super().__init__(search_terms, locale='de', **kwargs)

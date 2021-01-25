@@ -1,8 +1,8 @@
 from datetime import datetime
 from playsound import playsound
 from multiprocessing import Process
-from typing import Optional
-from stockscan import DummyScanner, StockMonitor, ScanResult
+from typing import Optional, Union, List
+from stockscan import DummyScanner, StockMonitor, ScanResult, ALL_SCANNERS
 from functools import partial
 from stockscan.vendors import *
 
@@ -278,40 +278,30 @@ class Main:
     Monitor vendor sites.
     """
 
-    def __init__(self, foreign=True, nvidia=True, others=True, amd=True,
-                 pattern="rtx 3080"):
-        self._setup_scanners(pattern, nvidia, foreign, others, amd)
+    def __init__(self):
+        self._scanners = []
 
-    def _setup_scanners(self, pattern: str, nvidia: bool, foreign: bool, others: bool, amd: bool):
-        patterns = pattern.split(',')
-        scanners = []
-        for pattern in patterns:
-            if nvidia:
-                scanners.append(NvidiaScanner(pattern))
-            if amd:
-                scanners.append(AMDScanner(pattern))
-            if others:
-                for ScannerClass in [HardwareFrScanner,
-                                     LDLCScanner,
-                                     TopAchatScanner,
-                                     RueDuCommerceScanner,
-                                     MaterielNetScanner,
-                                     AlternateFRScanner,
-                                     GrosBillScanner]:
-                    scanners.append(ScannerClass(pattern))
+    @staticmethod
+    def _check_parameter(name_list: Union[str, List[str]]):
+        if not isinstance(name_list, list):
+            name_list = [name_list]
+        name_list = list(name_list)
+        for i, name in enumerate(name_list):
+            name = name.replace('.', '').replace('-', '').lower().strip()
+            if not name.endswith("scanner"):
+                name += "scanner"
+            name_list[i] = name
+        return name_list
 
-            if foreign:
-                scanners.append(CaseKingScanner(pattern))
-                scanners.append(AlternateScanner(pattern, locale="de"))
+    def _setup_scanners(self, pattern: str, only_scanners: List[str], except_scanners: List[str]):
+        all_scanner_name = ALL_SCANNERS.keys()
+        if only_scanners:
+            scanner_names = [name for name in only_scanners if name in all_scanner_name]
+        else:
+            scanner_names = [name for name in all_scanner_name if name not in except_scanners]
 
-        dummy_scanners = [
-            GrosBillScanner("rtx 3090")
-            # DummyScanner(delay=1, error=1, stocks=1),
-            # DummyScanner(delay=1, error=1, stocks=1),
-        ]
-
-        # scanners = dummy_scanners
-        self.scanners = scanners
+        for name in scanner_names:
+            self._scanners.append(ALL_SCANNERS[name](pattern))
 
     @staticmethod
     def _print_scan_result(json_output: bool, scanner, result, *args):
@@ -328,12 +318,30 @@ class Main:
             else:
                 print(f"PENDING")
 
+    def pattern(self, pattern: str,
+                only_scanners: Union[str, List[str]] = [],
+                except_scanners: Union[str, List[str]] = []):
+        """
+        Add a new pattern to check on scanners
+        :param pattern: the pattern to match, supports '-keyword' to blacklist 'keyword'
+        :param only_scanners: only monitor with the given scanners
+        :param except_scanners: monitor with all scanners except given scanners
+        :return: self to allow chaining
+        """
+        only_scanners = self._check_parameter(only_scanners)
+        except_scanners = self._check_parameter(except_scanners)
+        patterns = pattern.split(',')
+        for p in patterns:
+            if p:
+                self._setup_scanners(p, only_scanners, except_scanners)
+        return self
+
     def scan(self, json=False):
         """
         Perform a single scan on all vendors.
         """
         try:
-            monitor = StockMonitor(self.scanners)
+            monitor = StockMonitor(self._scanners)
             monitor.register_to_scan(partial(Main._print_scan_result, json))
             asyncio.get_event_loop().run_until_complete(monitor.single_update())
         except KeyboardInterrupt:
@@ -347,7 +355,7 @@ class Main:
             update_freq (float): The interval at which scans are performed.
         """
         try:
-            monitor = StockMonitor(self.scanners, update_freq=update_freq)
+            monitor = StockMonitor(self._scanners, update_freq=update_freq)
             monitor.register_to_scan(partial(Main._print_scan_result, json))
             asyncio.get_event_loop().run_until_complete(monitor.update_loop())
         except KeyboardInterrupt:
@@ -364,8 +372,14 @@ class Main:
         """
         curses.wrapper(partial(self._gui_loop, update_freq, silent, silent_error))
 
+    def list_scanners(self):
+        """
+        List all available scanners
+        """
+        return [name.replace('scanner', '') for name in ALL_SCANNERS.keys()]
+
     def _gui_loop(self, update_freq, silent, silent_error, stdscr):
-        monitor = StockMonitor(self.scanners, update_freq=update_freq)
+        monitor = StockMonitor(self._scanners, update_freq=update_freq)
         app = CursesGUI(monitor, silent=silent, silent_error=silent_error, stdscr=stdscr)
 
         async def main_loop():
