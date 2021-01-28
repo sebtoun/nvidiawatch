@@ -1,6 +1,5 @@
 from stockscan.scanner import SearchBasedHttpScanner
 from typing import List
-from urllib.parse import quote
 from yarl import URL
 from bs4 import BeautifulSoup
 from bs4.element import Tag

@@ -3,7 +3,6 @@ from typing import List
 from urllib.parse import quote
 from bs4 import BeautifulSoup
 from bs4.element import Tag
-from yarl import URL
 
 from aiohttp import ClientTimeout
 import aiohttp

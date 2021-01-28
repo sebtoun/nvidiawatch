@@ -4,7 +4,6 @@ from multiprocessing import Process
 from typing import Optional, Union, List, Tuple
 from stockscan import DummyScanner, StockMonitor, ScanResult, ALL_SCANNERS
 from functools import partial
-from stockscan.vendors import *
 
 import asyncio
 import time
@@ -393,7 +392,5 @@ class Main:
 
 
 if __name__ == '__main__':
-    # print(AlternateFRScanner("rtx 3090").user_url)
-    # print(asyncio.run(AlternateFRScanner("rtx 3090").scan()))
     import fire
     fire.Fire(Main)
