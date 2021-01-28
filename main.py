@@ -1,7 +1,7 @@
 from datetime import datetime
 from playsound import playsound
 from multiprocessing import Process
-from typing import Optional, Union, List
+from typing import Optional, Union, List, Tuple
 from stockscan import DummyScanner, StockMonitor, ScanResult, ALL_SCANNERS
 from functools import partial
 from stockscan.vendors import *
@@ -282,10 +282,13 @@ class Main:
         self._scanners = []
 
     @staticmethod
-    def _check_parameter(name_list: Union[str, List[str]]):
-        if not isinstance(name_list, list):
-            name_list = [name_list]
-        name_list = list(name_list)
+    def _check_parameter(name_list: Union[None, str, List[str]]) -> List[str]:
+        if name_list is None:
+            return []
+        if isinstance(name_list, tuple):
+            name_list = list(name_list)
+        if isinstance(name_list, str):
+            name_list = name_list.split(",")
         for i, name in enumerate(name_list):
             name = name.replace('.', '').replace('-', '').lower().strip()
             if not name.endswith("scanner"):
@@ -293,7 +296,7 @@ class Main:
             name_list[i] = name
         return name_list
 
-    def _setup_scanners(self, pattern: str, only_scanners: List[str], except_scanners: List[str]):
+    def _setup_scanners(self, pattern: str, only_scanners: List[str], except_scanners: List[str]) -> None:
         all_scanner_name = ALL_SCANNERS.keys()
         if only_scanners:
             scanner_names = [name for name in only_scanners if name in all_scanner_name]
@@ -304,7 +307,7 @@ class Main:
             self._scanners.append(ALL_SCANNERS[name](pattern))
 
     @staticmethod
-    def _print_scan_result(json_output: bool, scanner, result, *args):
+    def _print_scan_result(json_output: bool, scanner, result, *args) -> None:
         if json_output:
             print(json.dumps({"scanner": scanner.name, "result": dataclasses.asdict(result)}, indent=4, default=str))
         else:
@@ -318,9 +321,9 @@ class Main:
             else:
                 print(f"PENDING")
 
-    def pattern(self, pattern: str,
-                only_scanners: Union[str, List[str]] = [],
-                except_scanners: Union[str, List[str]] = []):
+    def pattern(self, pattern: Union[str, List[str], Tuple[str]],
+                only_scanners: Union[str, List[str]] = None,
+                except_scanners: Union[str, List[str]] = None):
         """
         Add a new pattern to check on scanners
         :param pattern: the pattern to match, supports '-keyword' to blacklist 'keyword'
@@ -330,8 +333,9 @@ class Main:
         """
         only_scanners = self._check_parameter(only_scanners)
         except_scanners = self._check_parameter(except_scanners)
-        patterns = pattern.split(',')
-        for p in patterns:
+        if isinstance(pattern, str):
+            pattern = pattern.split(',')
+        for p in pattern:
             if p:
                 self._setup_scanners(p, only_scanners, except_scanners)
         return self

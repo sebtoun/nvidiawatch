@@ -13,7 +13,7 @@ class TopAchatScanner(SearchBasedHttpScanner):
 
     @property
     def target_url(self) -> str:
-        return f"https://www.topachat.com/pages/recherche.php?cat=accueil&etou=0&mc={quote('+'.join(self._keywords))}"
+        return f"https://www.topachat.com/pages/recherche.php?cat=micro&etou=0&mc={quote('+'.join(self._keywords))}"
 
     def _get_all_items_in_page(self, bs: BeautifulSoup) -> List[Tag]:
         items = bs.select('.produits.list article')

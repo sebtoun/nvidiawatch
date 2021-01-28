@@ -18,7 +18,7 @@ class MaterielNetScanner(SearchBasedHttpScanner):
 
     @property
     def target_url(self) -> str:
-        return f"https://www.materiel.net/recherche/{quote('+'.join(self._keywords))}/"
+        return f"https://www.materiel.net/recherche/{quote(' '.join(self._keywords))}/"
 
     def _get_all_items_in_page(self, bs: BeautifulSoup) -> List[Tag]:
         return bs.select("ul.c-products-list li.c-products-list__item") or bs.select("#tpl__product-page")

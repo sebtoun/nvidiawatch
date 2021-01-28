@@ -27,7 +27,8 @@ class NvidiaScanner(SearchBasedHttpScanner):
 
     def _get_all_items_in_page(self, json: dict) -> List[dict]:
         products = list(json["searchedProducts"]["productDetails"])
-        products.append(json["searchedProducts"]["featuredProduct"])
+        if json["searchedProducts"]["featuredProduct"] is not None:
+            products.append(json["searchedProducts"]["featuredProduct"])
         return products
 
     def _get_item_title(self, item: dict, json: dict) -> str:

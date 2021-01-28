@@ -14,7 +14,7 @@ class LDLCScanner(SearchBasedHttpScanner):
 
     @property
     def target_url(self) -> str:
-        return self.custom_url or f"https://www.ldlc.com/recherche/{quote('+'.join(self._keywords))}/"
+        return self.custom_url or f"https://www.ldlc.com/recherche/{quote(' '.join(self._keywords))}/"
 
     def _get_all_items_in_page(self, bs: BeautifulSoup) -> List[Tag]:
         return bs.select(".listing-product .pdt-item") or bs.select(".product-bloc")
