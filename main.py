@@ -307,18 +307,13 @@ class Main:
 
     @staticmethod
     def _print_scan_result(json_output: bool, scanner, result, *args) -> None:
+        output = {"scanner": scanner.name,
+                  "user_url": scanner.user_url,
+                  "result": dataclasses.asdict(result)}
         if json_output:
-            print(json.dumps({"scanner": scanner.name, "result": dataclasses.asdict(result)}, indent=4, default=str))
+            print(json.dumps(output, indent=4, default=str))
         else:
-            print(f"{result.timestamp.strftime('%Y/%m/%d %H:%M:%S')} - {scanner.name} - ", end='')
-            if result.is_in_stock:
-                print(f"IN STOCK - {scanner.user_url}")
-            elif result.is_error:
-                print(f"ERROR - {type(result.error).__name__}:{result.error}")
-            elif result.items is not None:
-                print(f"UNAVAILABLE - watching {plural_str('item', len(result.items))}")
-            else:
-                print(f"PENDING")
+            pp.pprint(output)
 
     def pattern(self, pattern: Union[str, List[str], Tuple[str]],
                 only_scanners: Union[str, List[str]] = None,
@@ -375,7 +370,7 @@ class Main:
         """
         curses.wrapper(partial(self._gui_loop, update_freq, silent, silent_error))
 
-    def list_scanners(self):
+    def list(self):
         """
         List all available scanners
         """
