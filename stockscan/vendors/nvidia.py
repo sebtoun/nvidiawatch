@@ -40,6 +40,12 @@ class NvidiaScanner(SearchBasedHttpScanner):
     def _is_item_in_stock(self, item: dict, json: dict) -> bool:
         return item["prdStatus"] != "out_of_stock"
 
+    def _get_item_url(self, item: dict, content: dict) -> str:
+        try:
+            return item["retailers"][0]["directPurchaseLink"]
+        except:
+            return self.user_url
+
     @property
     def user_url(self) -> str:
         return "https://www.nvidia.com/fr-fr/shop/geforce/?page=1&limit=9&locale=fr-fr&manufacturer=NVIDIA"

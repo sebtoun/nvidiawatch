@@ -31,7 +31,8 @@ class AMDScanner(SearchBasedHttpScanner):
         return item.select_one(".shop-title").get_text().strip()
 
     def _get_item_price(self, item: Tag, json: dict) -> float:
-        return float(item.select_one('.shop-price').get_text().replace('€', '').replace(',', '.').strip())
+        return float(
+            item.select_one('.shop-price').get_text().replace('€', '').replace('.', '').replace(',', '.').strip())
 
     def _is_item_in_stock(self, item: Tag, bs: BeautifulSoup) -> bool:
         return item.select_one(".shop-links button") is not None

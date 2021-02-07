@@ -175,7 +175,6 @@ class HttpScanner(Scanner, is_concrete_scanner=False):
 class SearchBasedHttpScanner(HttpScanner, is_concrete_scanner=False):
     def __init__(self, name: str, search_terms: str, **kwargs):
         self._keywords, self._blacklist = parse_search_terms(search_terms)
-        self._item_count = 0
         super().__init__(name, **kwargs)
 
     def filter_item(self, item: Item) -> bool:
