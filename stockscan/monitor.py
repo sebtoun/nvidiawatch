@@ -134,11 +134,13 @@ class StockMonitor:
         logger.debug('thread started')
 
     def terminate(self) -> None:
-        logger.debug('terminate thread')
         self.stop_update = True
         self.interrupt()
-        self._update_thread.join()
-        logger.debug('thread joined')
+        if self._update_thread:
+            logger.debug('terminate thread')
+            self._update_thread.join()
+            self._update_thread = None
+            logger.debug('thread joined')
 
     @contextmanager
     def running_in_thread(self):
