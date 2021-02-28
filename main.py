@@ -306,7 +306,7 @@ class Main:
             self._scanners.append(ALL_SCANNERS[name](pattern))
 
     @staticmethod
-    def _print_scan_result(json_output: bool, scanner, result, *args) -> None:
+    async def _print_scan_result(json_output: bool, scanner: Scanner, result: ScanResult, *args) -> None:
         output = {"scanner": scanner.name,
                   "user_url": scanner.user_url,
                   "result": dataclasses.asdict(result)}

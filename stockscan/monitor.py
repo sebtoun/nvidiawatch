@@ -56,7 +56,8 @@ class StockMonitor:
             if result.is_in_stock:
                 self._last_stock_time[i] = result.timestamp
             self._last_results[i] = result
-            self.dispatch_scan_event(self._scanners[i], result, self._last_stock_time[i], self._consecutive_errors[i])
+            await self.dispatch_scan_event(self._scanners[i], result,
+                                           self._last_stock_time[i], self._consecutive_errors[i])
 
     async def interruptible(self, coro):
         done, pending = await asyncio.wait([coro, self._cancel_event.wait()], return_when=asyncio.FIRST_COMPLETED)
@@ -81,11 +82,11 @@ class StockMonitor:
             if delay_elapsed < self._update_freq:
                 await asyncio.sleep(self._update_freq - delay_elapsed)
 
-    def dispatch_scan_event(self, scanner: Scanner, result: ScanResult, last_stock_time: Optional[datetime],
-                            consecutive_errors: int):
+    async def dispatch_scan_event(self, scanner: Scanner, result: ScanResult, last_stock_time: Optional[datetime],
+                                  consecutive_errors: int):
         for fun in self._scan_event_callbacks:
             try:
-                fun(scanner, result, last_stock_time, consecutive_errors)
+                await fun(scanner, result, last_stock_time, consecutive_errors)
             except Exception as err:
                 logger.exception("Exception during scan event dispatch", err)
 
