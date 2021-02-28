@@ -2,7 +2,7 @@ from datetime import datetime
 from playsound import playsound
 from multiprocessing import Process
 from typing import Optional, Union, List, Tuple
-from stockscan import DummyScanner, StockMonitor, ScanResult, ALL_SCANNERS
+from stockscan import DummyScanner, StockMonitor, ScanResult, ALL_SCANNERS, Scanner
 from functools import partial
 
 import asyncio
