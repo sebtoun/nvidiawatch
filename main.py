@@ -55,6 +55,8 @@ class CursesGUI:
         self._notification_process: Optional[Process] = None
         self._notification_state: str = CursesGUI.Unavailable
 
+        self._notification_forced_state: Optional[str] = None
+
         # init layout
         curses.use_default_colors()
         curses.init_pair(1, curses.COLOR_RED, -1)
@@ -124,7 +126,9 @@ class CursesGUI:
         self._play_sound_for_state()
 
     def _notifications(self):
-        if any(result[0].is_in_stock for result in self.monitor.last_results):
+        if self._notification_forced_state is not None:
+            self._notify_state(self._notification_forced_state)
+        elif any(result[0].is_in_stock for result in self.monitor.last_results):
             self._notify_state(CursesGUI.InStock)
         elif any(result[2] >= CursesGUI.MAX_FAIL for result in self.monitor.last_results):
             self._notify_state(CursesGUI.Error)
@@ -137,6 +141,12 @@ class CursesGUI:
             self._stop_sound()
         elif not self.silent:
             self._play_sound_for_state()
+
+    def toggle_test_state(self):
+        if self._notification_forced_state is None:
+            self._notification_forced_state = self.InStock
+        else:
+            self._notification_forced_state = None
 
     @staticmethod
     def add_centered(stdscr, text, *args, **kwargs):
@@ -236,9 +246,14 @@ class CursesGUI:
                 stdscr.addstr(scanner.user_url, curses.color_pair(3) | curses.A_UNDERLINE)
                 y += 1
 
-        stdscr.addstr(y, padding[0], f"[ 'Q'uit | 'U'pdate now | ")
-        mute_cmd = "Un'm'ute" if self.silent else "'M'ute"
+        stdscr.addstr(y, padding[0], f"[ 'Q'uit | 'U'pdate now")
+
+        mute_cmd = " | Un'm'ute" if self.silent else " | 'M'ute"
         stdscr.addstr(mute_cmd, curses.A_STANDOUT if self.silent else 0)
+
+        test_cmd = " | Start 'T'est" if self._notification_forced_state is None else " | Stop 'T'est"
+        stdscr.addstr(test_cmd, curses.A_STANDOUT if self._notification_forced_state is not None else 0)
+
         stdscr.addstr(" ]")
 
         pad_dims = stdscr.getmaxyx()
@@ -261,6 +276,8 @@ class CursesGUI:
                 self.toggle_mute()
             elif keyup == 'U':
                 self.monitor.update_now()
+            elif keyup == 'T':
+                self.toggle_test_state()
 
     async def update_loop(self):
         try:
