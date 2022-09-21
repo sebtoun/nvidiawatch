@@ -12,11 +12,11 @@ class NvidiaScanner(SearchBasedHttpScanner):
         headers = {
             # "origin": "https://www.nvidia.com",
             # "referer": "https://www.nvidia.com/",
-            # "dnt": "1",
-            # "accept": "application/json,text/plain,*/*",
-            # "accept-encoding": "gzip, deflate, br",
-            # "accept-language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
-            # "cache-control": "max-age=0"
+            "upgrade-insecure-requests": "1",
+            "accept": "application/json,text/plain,*/*",
+            "accept-encoding": "gzip, deflate, br",
+            "accept-language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+            "cache-control": "max-age=0"
         }
         headers.update(super().request_headers)
         return headers
