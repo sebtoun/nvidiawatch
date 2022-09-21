@@ -246,12 +246,13 @@ class CursesGUI:
                 stdscr.addstr(scanner.user_url, curses.color_pair(3) | curses.A_UNDERLINE)
                 y += 1
 
-        stdscr.addstr(y, padding[0], f"[ 'Q'uit | 'U'pdate now")
+        stdscr.addstr(y, padding[0], f"[ 'Q'uit | 'U'pdate now | ")
 
-        mute_cmd = " | Un'm'ute" if self.silent else " | 'M'ute"
+        mute_cmd = "Un'm'ute" if self.silent else "'M'ute"
         stdscr.addstr(mute_cmd, curses.A_STANDOUT if self.silent else 0)
 
-        test_cmd = " | Start 'T'est" if self._notification_forced_state is None else " | Stop 'T'est"
+        stdscr.addstr(" | ")
+        test_cmd = "Start 'T'est" if self._notification_forced_state is None else "Stop 'T'est"
         stdscr.addstr(test_cmd, curses.A_STANDOUT if self._notification_forced_state is not None else 0)
 
         stdscr.addstr(" ]")
