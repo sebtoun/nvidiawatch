@@ -84,7 +84,7 @@ class CursesGUI:
         self.pad = curses.newpad(*self.pad_size)
         self.stdscr = stdscr
 
-    def _grow_pad(self, sizeyx: tuple[int, int]):
+    def _grow_pad(self, sizeyx: Tuple[int, int]):
         self.pad_size = (self.pad_size[0] + sizeyx[0], self.pad_size[1] + sizeyx[1])
         self.pad = curses.newpad(*self.pad_size)
 
@@ -327,7 +327,7 @@ class Main:
     async def _print_scan_result(json_output: bool, scanner: Scanner, result: ScanResult, *args) -> None:
         output = {"scanner": scanner.name,
                   "user_url": scanner.user_url,
-                  "result": dataclasses.asdict(result)}
+                  "result": result.to_dict()}
         if json_output:
             print(json.dumps(output, indent=4, default=str))
         else:

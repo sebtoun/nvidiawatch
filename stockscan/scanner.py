@@ -1,4 +1,4 @@
-from typing import Optional, Union, List, Tuple
+from typing import Optional, Union, List, Tuple, Dict
 from datetime import datetime
 from bs4 import BeautifulSoup
 from bs4.element import Tag
@@ -51,6 +51,13 @@ class ScanResult:
     @property
     def is_in_stock(self) -> bool:
         return self.items and any(item.in_stock for item in self.items)
+
+    def to_dict(self) -> Dict:
+        return {
+            "timestamp": self.timestamp,
+            "error": self.error,
+            "items": self.items
+        }
 
 
 class MetaScanner(type):
